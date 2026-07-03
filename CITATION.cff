@@ -1,0 +1,14 @@
+# TASLAK — ilk halka açık sürümden önce: yasal isim + Zenodo concept-DOI eklenecek
+# (kuruluş ilkesi #16: atıflanabilirlik altyapıdır; concept-DOI vs version-DOI ayrımına dikkat)
+cff-version: 1.2.0
+title: "TARHAN"
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+authors:
+  - alias: emircbngl # TODO(owner): given-names / family-names
+version: 0.0.1.dev0
+repository-code: "https://github.com/emircbngl/tarhan"
+abstract: >-
+  Physics-first, extensible materials simulator: galvanic cells, hydrogen fuel
+  cells and semiconductor devices on one charged-species transport kernel.
+license: BSD-3-Clause

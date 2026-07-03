@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tarhan"
+version = "0.0.1.dev0"
+description = "Physics-first materials simulator: galvanic cells, fuel cells and semiconductor devices on one charged-species transport kernel"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "emircbngl" }] # TODO(owner): yasal isim, ilk yayından önce
+keywords = ["simulation", "electrochemistry", "fuel-cell", "semiconductor", "drift-diffusion", "nernst-planck"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+# Karar (Form Decision 2026-07-03): çıplak kurulum = headless çekirdek + matplotlib;
+# 'tarhan demo' sıfır-config çalışır. Qt kabuğu ileride [gui] extra'sı olacak.
+dependencies = ["numpy>=1.26", "scipy>=1.11", "matplotlib>=3.8"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# gelecek (v0.2+ kapısında): gui = ["pyside6>=6.6"], mlx = [...], fast = [...]
+
+[project.scripts]
+tarhan = "tarhan.cli:main"
+
+[project.urls]
+Repository = "https://github.com/emircbngl/tarhan"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["validation/layer0"]
+addopts = "-q"
