@@ -217,6 +217,34 @@ def depletion_width_step_junction(eps_s: float, phi_bi: float, q: float,
     return math.sqrt(2.0 * eps_s * phi_bi * (1.0 / Na + 1.0 / Nd) / q)
 
 
+def cv_doping_from_slope(slope: float, q: float, eps_s: float, area: float) -> float:
+    """C-V eğiminden hafif-taraf doping: N_l = 2/(slope·q·εs·A²)  [Hu Eq. 4.4.2].
+
+    slope = d(1/C²_dep)/dV_r. Katman: first-principles (oracle-verified) —
+    physics_verify 2/2 (DIMENSIONAL [A² ile kapanır] + NUMERIC 5.885e21 m⁻³),
+    2026-07-03; KB kartı semiconductors/cv-doping-extraction. TERS-PROBLEM yolu
+    (parametre çıkarımı). DİKKAT (rank 5 bulgusu): Hu Örnek 4-2'nin BASILI
+    girdileri (slope=2e23, A=1 μm²) kendi basılı cevabını üretmez — kitabın
+    yerine-koyması A² için 1e-8 kullanır (1e-16 değil); fiziksel öz-tutarlı
+    eğim 2e31'dir. test_rank05'te strict-xfail ile belgeli.
+    """
+    return 2.0 / (slope * q * eps_s * area ** 2)
+
+
+def cv_heavy_doping_from_intercept(ni: float, n_light: float, phi_bi: float,
+                                   kT_q: float) -> float:
+    """C-V kesişiminden ağır-taraf doping: N_h = (ni²/N_l)·e^(φ_bi/(kT/q)).
+
+    (builtin_potential'ın N_h için tersine çevrilmişi.) Katman: first-principles
+    (oracle-verified) — physics_verify 3/3 (DIMENSIONAL + Hu Örnek 4-2 çift
+    NUMERIC: 0.84 V → 1.790e18 cm⁻³ [basılı 1.8e18]; duyarlılık 0.78 V →
+    1.781e17 [basılı 1.8e17]), 2026-07-03; KB kartı
+    semiconductors/cv-intercept-heavy-doping. Hu'nun dersi test olarak kodlu:
+    kesişimdeki 60 mV'lik hata N_h'ı BİR DEKAD kaydırır (üstel duyarlılık).
+    """
+    return (ni ** 2 / n_light) * math.exp(phi_bi / kT_q)
+
+
 def shockley_diode_current(I0: float, V: float, n_ideality: float, kT_q: float) -> float:
     """Shockley diyot denklemi i = I0·(exp(V/(n·kT/q)) − 1) [A].
 
