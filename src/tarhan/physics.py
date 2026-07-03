@@ -95,10 +95,10 @@ def springer_conductivity(lam: float, T_kelvin: float) -> float:
 def builtin_potential(Na: float, Nd: float, ni: float, kT_q: float) -> float:
     """Step-junction built-in potansiyeli φ_bi = (kT/q)·ln(Na·Nd/ni²) [V].
 
-    Katman: textbook (reproduced) — Hu, Modern Semiconductor Devices, Örnek 4-1
-    basılı değerleri birebir (φ_bi≈1 V @ Na=1e20, Nd=1e17, ni=1e10, kT/q=0.026).
-    Oracle kartı: sıradaki physics_verify oturumunda. ni/kT_q AÇIK argüman
-    (kitap-konvansiyonu tuzağı). Test: test_rank02_hu_junction.py.
+    Katman: first-principles (oracle-verified) — physics_verify 3/3 (DIMENSIONAL
+    + Hu ve Pierret çift NUMERIC çapası: 1.01774 V / 0.715643 V), 2026-07-03;
+    KB kartı semiconductors/builtin-potential. ni/kT_q AÇIK argüman
+    (kitap-konvansiyonu tuzağı). Testler: test_rank02 + test_rank09.
     """
     return kT_q * math.log(Na * Nd / ni ** 2)
 
@@ -106,8 +106,10 @@ def builtin_potential(Na: float, Nd: float, ni: float, kT_q: float) -> float:
 def depletion_width_one_sided(eps_s: float, phi_bi: float, q: float, N_light: float) -> float:
     """Tek-yanlı depletion genişliği W ≈ sqrt(2·εs·φ_bi/(q·N_hafif)).
 
-    Katman: textbook (reproduced) — Hu Örnek 4-1 (W=0.12 μm birebir).
-    Geçerlilik: N_ağır >> N_hafif (tek-yanlı adım eklem), sıfır dış gerilim
+    Katman: first-principles (oracle-verified) — physics_verify 2/2 (DIMENSIONAL
+    + NUMERIC Hu vakası 1.16232e-7 m), 2026-07-03; ayrıca adım-eklem formunun
+    Na→∞ LIMIT'i olarak sembolik tutarlılığı oracle'da kanıtlı. Hu Örnek 4-1
+    basılı W=0.12 μm birebir. Geçerlilik: N_ağır >> N_hafif (tek-yanlı adım eklem), sıfır dış gerilim
     (V uygulanacaksa φ_bi yerine φ_bi−V geçilir). Birim: cgs-benzeri kitap
     konvansiyonunda [cm] (εs [F/cm], N [cm^-3]).
     """
@@ -118,8 +120,10 @@ def depletion_width_step_junction(eps_s: float, phi_bi: float, q: float,
                                   Na: float, Nd: float) -> float:
     """İki-yanlı adım eklem depletion genişliği W = sqrt(2·εs·φ_bi·(1/Na+1/Nd)/q).
 
-    Katman: textbook (reproduced) — Pierret, Semiconductor Device Fundamentals,
-    Böl. 5 çapası (Na=1e17, Nd=1e15: V_bi=0.716 V, W=0.972 μm; rank 9).
+    Katman: first-principles (oracle-verified) — physics_verify 3/3 (DIMENSIONAL
+    + NUMERIC Pierret 9.7135e-7 m + LIMIT Na→∞ ⇒ tek-yanlı form), 2026-07-03;
+    KB kartı semiconductors/depletion-width-step-junction. Pierret Böl. 5 çapası
+    (Na=1e17, Nd=1e15: V_bi=0.716 V, W=0.972 μm; rank 9).
     NOT: çapa aritmetiği ε_r≈11.8'i sabitler (katalog aktarımı 11.7 idi — 0.967 μm
     verir, çapayı üretemez; xfail testi belgeliyor). Birim: [cm] (εs [F/cm]).
     """
