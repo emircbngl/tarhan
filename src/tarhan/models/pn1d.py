@@ -91,8 +91,15 @@ class PNDiode1D:
         return xp.asarray(x) / self.L_D
 
     def doping_hat(self, x_hat):
+        """Ölçekli net doping. FV-doğruluğu: eklem DÜĞÜMÜNÜN kontrol hacmi iki
+        yana yayıldığından yarı-hücre ortalaması alır — (Nd−Na)/2. (Grid-yakınsama
+        çalışması 2026-07-04: tam-Nd ataması baskın O(h) hata terimiydi; yarı-hücre
+        düzeltmesi seviye-farklarını ~10× küçülttü.)"""
         xp = backend.xp()
-        return xp.where(x_hat < 0.0, -self.Na / self.C0, self.Nd / self.C0)
+        nd = xp.where(x_hat < 0.0, -self.Na / self.C0, self.Nd / self.C0)
+        j = int(xp.argmin(xp.abs(x_hat)))
+        nd[j] = 0.5 * (self.Nd - self.Na) / self.C0
+        return nd
 
 
 def _neutral_psi(n_hat_doping, delta):

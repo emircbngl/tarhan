@@ -54,21 +54,40 @@ def test_equilibrium_depletion_width_debye_tails():
     assert w_ana < w_sim < w_ana + 4.0 * DEV.L_D
 
 
-def test_peak_field_reproduces_sze_correction():
-    """Çözücü, Sze'nin ψ_bi−2kT/q düzeltmesini BAĞIMSIZ üretiyor (ölçüm: %0.03):
-    konvansiyon-tuzakları listesindeki düzeltme artık kendi aygıt çözümümüzden
-    ölçülen fizik. Naif depletion-yaklaşımı ölçülebilir biçimde sapar (%3.7)."""
-    eq = solve_bias(DEV, 0.0)
+def _e_max(h0, gamma):
+    eq = solve_bias(PNDiode1D(h0=h0, gamma=gamma), 0.0)
     x = np.asarray(eq["x_hat"]) * DEV.L_D
     psi_v = DEV.ut * np.asarray(eq["psi"])
-    e_max_sim = float(np.max(np.abs(-(psi_v[1:] - psi_v[:-1]) / (x[1:] - x[:-1]))))
+    return float(np.max(np.abs(np.diff(psi_v) / np.diff(x))))
+
+
+def test_peak_field_reproduces_sze_correction():
+    """Çözücü, Sze'nin ψ_bi−2kT/q düzeltmesini BAĞIMSIZ üretiyor.
+
+    TARİHÇE (dürüstlük): ilk sürümde sabit-grid E_max, Sze'yle %0.03 uyumluydu —
+    FV eklem-doping düzeltmesi (2026-07-04) sonrası bunun TESADÜFİ hata-iptali
+    olduğu anlaşıldı. Gerçek iddia daha güçlü: E_max temiz O(h) yakınsar (farklar
+    tam yarılanır) ve order-1 Richardson limiti Sze'yi ~4e-5 içinde vurur; sabit
+    baseline-grid değeri ~%1.2 grid-nicemlemesi taşır (belgeli)."""
+    e_c = _e_max(2.5e-7, 1.03)
+    e_f = _e_max(1.25e-7, 1.0149)
+    e_ext = 2.0 * e_f - e_c                       # order-1 Richardson (h yarılanır)
 
     vbi = builtin_potential(DEV.Na, DEV.Nd, DEV.ni, DEV.ut)
     v_sze = vbi - 2.0 * DEV.ut
     w_sze = depletion_width_step_junction(DEV.eps_s, v_sze, DEV.q, DEV.Na, DEV.Nd)
-    assert abs(e_max_sim / (2.0 * v_sze / w_sze) - 1.0) < 0.005     # ölçüm: 0.0003
+    e_sze = 2.0 * v_sze / w_sze
+    assert abs(e_ext / e_sze - 1.0) < 5e-4        # ölçüm: 4e-5
+    assert abs(_e_max(DEV.h0, DEV.gamma) / e_sze - 1.0) < 0.02   # baseline: O(h) bandı
     w0 = depletion_width_step_junction(DEV.eps_s, vbi, DEV.q, DEV.Na, DEV.Nd)
-    assert 0.93 < e_max_sim / (2.0 * vbi / w0) < 0.99               # naif model sapar
+    assert e_ext / (2.0 * vbi / w0) < 0.985       # naif depletion ölçülebilir sapar
+
+
+def test_e_max_first_order_grid_convergence():
+    """E_max kink-noktası edge-max'ı: farklar yarılanmalı (gözlenen mertebe ~1)."""
+    e1, e2, e3 = _e_max(2.5e-7, 1.03), _e_max(1.25e-7, 1.0149), _e_max(6.25e-8, 1.00744)
+    p = math.log2((e2 - e1) / (e3 - e2)) if (e3 - e2) != 0 else 0.0
+    assert 0.8 < abs(p) < 1.3                     # ölçüm: 0.98
 
 
 def test_shockley_ideality_low_injection(sweep):

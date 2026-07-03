@@ -239,6 +239,52 @@ def depletion_width_step_junction(eps_s: float, phi_bi: float, q: float,
     return math.sqrt(2.0 * eps_s * phi_bi * (1.0 / Na + 1.0 / Nd) / q)
 
 
+def open_circuit_voltage(j_sc: float, j0: float, n_ideality: float, kT_q: float) -> float:
+    """Açık-devre gerilimi V_oc = n·(kT/q)·ln(J_sc/J_0 + 1) (ideal diyot + ışık akımı).
+
+    Katman: first-principles (oracle-verified) — physics_verify 2/2 (DIMENSIONAL
+    + NUMERIC 0.6288 V @ J_sc=350 A/m², J_0=1e-8 A/m²), 2026-07-04; KB kartı
+    semiconductors/open-circuit-voltage (prereq: shockley-diode-equation).
+    Kaynak: PVEducation (open) / Green, Solar Cells (1982). Superposition varsayımı.
+    """
+    return n_ideality * kT_q * math.log(j_sc / j0 + 1.0)
+
+
+def ideal_fill_factor(voc_norm: float) -> float:
+    """İdeal diyottan TAM dolum faktörü — sayısal güç-maksimizasyonu (bağımsız yol).
+
+    Normalize: v = V/(n·kT/q), voc_norm = V_oc/(n·kT/q); J_sc = J_0(e^voc − 1) ⇒
+    p(v) = v·[1 − (e^v − 1)/(e^voc − 1)];  FF = max_v p(v) / voc.
+    Katman: first-principles (kapalı-form ideal diyottan sayısal maksimizasyon;
+    green_fill_factor'ın doğruluk-hakemi — çift-yol deseni, rank-13).
+    """
+    if voc_norm <= 1.0:
+        raise ValueError(f"voc_norm={voc_norm}: normalize V_oc > 1 olmalı")
+    from scipy.optimize import minimize_scalar
+
+    em1 = math.expm1(voc_norm)
+
+    def neg_p(v):
+        return -v * (1.0 - math.expm1(v) / em1)
+
+    res = minimize_scalar(neg_p, bounds=(0.5 * voc_norm, voc_norm), method="bounded",
+                          options={"xatol": 1e-12})
+    return -res.fun / voc_norm
+
+
+def green_fill_factor(voc_norm: float) -> float:
+    """Green (1981) ampirik dolum faktörü FF₀ = (v_oc − ln(v_oc + 0.72))/(v_oc + 1).
+
+    Katman: empirical fit — Green, Solid-State Electronics 24, 788 (1981);
+    PVEducation'ın standart FF ifadesi. Geçerlilik: v_oc > 10 (normalize).
+    Doğrulama: ideal_fill_factor'la çift-yol karşılaştırması (rank-13 testi;
+    ölçülen sapma bandı test dosyasında) + oracle NUMERIC (FF₀(20)=0.808043).
+    """
+    if voc_norm <= 10.0:
+        raise ValueError(f"voc_norm={voc_norm}: Green ifadesi v_oc > 10 için geçerli")
+    return (voc_norm - math.log(voc_norm + 0.72)) / (voc_norm + 1.0)
+
+
 def cv_doping_from_slope(slope: float, q: float, eps_s: float, area: float) -> float:
     """C-V eğiminden hafif-taraf doping: N_l = 2/(slope·q·εs·A²)  [Hu Eq. 4.4.2].
 
