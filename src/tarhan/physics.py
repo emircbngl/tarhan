@@ -63,6 +63,93 @@ def randles_sevcik_peak_current(n: float, F: float, A: float, c0: float,
 
 
 # --------------------------------------------------------------------------- #
+# Yakıt pili kayıp-merdiveni (O'Hayre, Fuel Cell Fundamentals 3e — rank 6)
+# --------------------------------------------------------------------------- #
+
+def standard_cell_potential(e_red_cathode: float, e_red_anode: float) -> float:
+    """Standart hücre potansiyeli E⁰_hücre = E⁰_katot − E⁰_anot (indirgeme potansiyelleri).
+
+    Katman: textbook (reproduced) — O'Hayre 3e Örnek 2.3 (DMFC): katot +1.229 V,
+    anot (CO2/CH3OH, indirgeme yönü) +0.03 V → E⁰ = +1.199 V (basılı; kitap anot
+    yarı-tepkimesini oksidasyon yönünde −0.03 olarak yazar). Kural: E⁰ değerleri
+    stokiyometrik çarpanla ÖLÇEKLENMEZ (yoğunluk-değil-miktar bağımsızlığı).
+    """
+    return e_red_cathode - e_red_anode
+
+
+def activation_overpotential_tafel(j: float, j0: float, alpha: float, n: float,
+                                   F: float, R: float, T: float) -> float:
+    """Tafel aktivasyon aşırı-gerilimi η_act = (R·T/(α·n·F))·ln(j/j0) [V].
+
+    Katman: first-principles (oracle-verified) — physics_verify 3/3 (DIMENSIONAL
+    + dekad-eğimi 0.0591563 V + 6-dekad 0.354938 V), 2026-07-03; KB kartı
+    electrochemistry/tafel-overpotential. O'Hayre 3e Örnek 3.3 çapası: α=0.5,
+    n=2, 298.15 K → ~0.059 V/dekad (basılı "yaklaşık 60 mV"); j0=1e-6→1 A/cm²
+    için basılı yuvarlak 6×60 mV = 0.36 V (hassas 0.3549).
+    Geçerlilik: Tafel rejimi (j >> j0'ın ters-terim katkısı ihmal).
+    """
+    return (R * T / (alpha * n * F)) * math.log(j / j0)
+
+
+def ionic_resistance(thickness: float, conductivity: float, area: float) -> float:
+    """Elektrolit direnci R_ionic = L/(σ·A) [Ω].
+
+    Katman: first-principles (oracle-verified) — physics_verify (ohmic-loss spec,
+    4/4: R=0.01 Ω @ L=100 μm, σ=0.10 S/cm, A=10 cm²), 2026-07-03. O'Hayre 3e
+    Örnek 4.1: (a) 100 μm → 0.01 Ω, (b) 50 μm → 0.005 Ω (basılı). Birimler tutarlı
+    olmalı (kitap cgs: cm, S/cm, cm²).
+    """
+    return thickness / (conductivity * area)
+
+
+def ohmic_overpotential(current: float, r_total: float) -> float:
+    """Ohmik kayıp η_ohmic = i·R_toplam [V].
+
+    Katman: first-principles (oracle-verified, aynı ohmic-loss spec'i) —
+    O'Hayre 3e Örnek 4.1 basılı: 10 A × (0.005+0.01) Ω = 0.15 V (a);
+    10 A × (0.005+0.005) Ω = 0.10 V (b).
+    """
+    return current * r_total
+
+
+def effective_diffusivity_bruggeman(porosity: float, d_bulk: float) -> float:
+    """Bruggeman etkin difüzyon D_eff = ε^1.5 · D.
+
+    Katman: empirical fit (Bruggeman korelasyonu) — O'Hayre 3e Örnek 5.1 basılı
+    zincir: ε=0.4, D=0.2 cm²/s → 0.0506 cm²/s. NOT: örneğin problem METNİ
+    D=0.1 cm²/s der, basılı ÇÖZÜM 0.2 ile ilerler — kitap-içi tutarsızlık
+    (muhtemel errata); test_rank06'da strict-xfail ile belgeli.
+    """
+    return porosity ** 1.5 * d_bulk
+
+
+def limiting_current_density(n: float, F: float, d_eff: float, c_bulk: float,
+                             delta: float) -> float:
+    """Limit akım yoğunluğu j_L = n·F·D_eff·c⁰/δ.
+
+    Katman: first-principles (oracle-verified) — physics_verify 2/2 (DIMENSIONAL
+    + NUMERIC 22653 A/m² = 2.2653 A/cm²), 2026-07-03; KB kartı
+    electrochemistry/limiting-current-density. O'Hayre 3e Örnek 5.1 basılı: 2.26
+    A/cm² (n=4, D_eff=0.0506 cm²/s, c=5.8e-6 mol/cm³, δ=0.05 cm). Birimler tutarlı.
+    """
+    return n * F * d_eff * c_bulk / delta
+
+
+def concentration_overpotential(c_coeff: float, j: float, j_l: float) -> float:
+    """Konsantrasyon aşırı-gerilimi η_conc = c·ln(j_L/(j_L − j)) [V].
+
+    Katman: first-principles (oracle-verified) — physics_verify 3/3 (DIMENSIONAL
+    [çıkarmasız eşdeğer formla; harness aynı-boyut çıkarmasında 1−1=0 artefaktı
+    veriyor] + NUMERIC 0.216244 V + LIMIT j→0 ⇒ 0), 2026-07-03; KB kartı
+    electrochemistry/concentration-overpotential. O'Hayre 3e Örnek 5.1 basılı:
+    c=0.1 V, j=2, j_L=2.26 → 0.22 V. Geçerlilik: j < j_L (j→j_L'de ıraksar).
+    """
+    if not j < j_l:
+        raise ValueError(f"j={j} >= j_L={j_l}: konsantrasyon limiti aşıldı (model ıraksar)")
+    return c_coeff * math.log(j_l / (j_l - j))
+
+
+# --------------------------------------------------------------------------- #
 # PEM yakıt pili — Nafion membran (Springer 1991)
 # --------------------------------------------------------------------------- #
 
