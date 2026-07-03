@@ -54,6 +54,7 @@ Reduced-precision backends can never be the truth path (see `tarhan/backend.py`)
 | 10 | Scharfetter–Gummel vs central-difference flux | Farrell et al. (WIAS 2263); Selberherr | ✅ equilibrium at U_T·ln10 to 9e-16 |
 
 | ⚑ | **Flagship: 1D pn-diode drift-diffusion (Gummel + Scharfetter-Gummel)** | Selberherr; Farrell (WIAS 2263); short-base analytics | ✅ V_bi to 0.6 µV; ideality 1.000-1.002; absolute J vs closed form 0.3%; **independently reproduces Sze's ψ_bi−2kT/q correction to 0.03%**; discrete conservation ~1e-8 |
+| ⚑ | **Flagship + SRH recombination** | Shockley-Read/Hall 1952; Sah-Noyce-Shockley 1957 | ✅ τ→∞ regression exact; conservation with R active 1e-7; **minority diffusion length emerges from profile: L_p/√(Dτ)=0.99**; two-regime ideality ~1.8→1.08 |
 
 See [`validation/CATALOG.md`](validation/CATALOG.md) for details, provenance and
 license flags. Code is never copied from sources — algorithms are reimplemented and

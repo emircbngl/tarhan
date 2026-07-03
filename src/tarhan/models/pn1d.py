@@ -51,6 +51,8 @@ class PNDiode1D:
     len_n: float = 3e-4       # cm
     h0: float = 5e-7          # cm (eklemde ilk adım, 5 nm)
     gamma: float = 1.06       # grid büyüme oranı
+    tau_n: float | None = None   # s — SRH elektron ömrü (None ⇒ R=0, kısa-taban v1)
+    tau_p: float | None = None   # s — SRH deşik ömrü (midgap tuzak: n1=p1=ni)
     # türetilenler
     C0: float = field(init=False)
     delta: float = field(init=False)
@@ -61,6 +63,12 @@ class PNDiode1D:
                      "len_p", "len_n", "h0"):
             v = getattr(self, name)
             if not (v > 0.0 and math.isfinite(v)):
+                raise ValueError(f"{name}={v}: pozitif ve sonlu olmalı")
+        if (self.tau_n is None) != (self.tau_p is None):
+            raise ValueError("tau_n ve tau_p birlikte verilmeli (ya ikisi ya hiçbiri)")
+        for name in ("tau_n", "tau_p"):
+            v = getattr(self, name)
+            if v is not None and not (v > 0.0 and math.isfinite(v)):
                 raise ValueError(f"{name}={v}: pozitif ve sonlu olmalı")
         self.C0 = max(self.Na, self.Nd)
         self.delta = self.ni / self.C0
@@ -125,27 +133,33 @@ def _poisson_newton(dev, x_hat, psi, phi_n, phi_p, tol=1e-10, max_iter=100):
     raise RuntimeError(f"Poisson-Newton yakınsamadı (son adım {step:.2e})")
 
 
-def _continuity_solve(dev, x_hat, psi, carrier, bc_left, bc_right):
-    """R=0 süreklilik: SG kenar akıları, lineer tridiag (M-matris ⇒ pozitif).
+def _continuity_solve(dev, x_hat, psi, carrier, bc_left, bc_right,
+                      mu_hat=1.0, src_lin=None, src_const=None):
+    """Süreklilik: SG kenar akıları + (ops.) SRH lineerize kaynak; tridiag M-matris.
 
-    carrier='n': Ĵ ∝ n̂_r·B(Δψ̂) − n̂_l·B(−Δψ̂)
-    carrier='p': Ĵ ∝ p̂_l·B(Δψ̂) − p̂_r·B(−Δψ̂)  (ayrıklaştırma aynası)
+    carrier='n': dĴn/dx̂ = +R̂ ;  carrier='p': dĴp/dx̂ = −R̂  (toplam J korunur).
+    Gummel-içi lineerizasyon: R̂ ≈ (v_prev·u − δ²)/den_prev ⇒ her iki taşıyıcıda
+    köşegeni BÜYÜTEN kayıp terimi (src_lin = h̄·v_prev/den ≥ 0, src_const =
+    h̄·δ²/den ≥ 0) → M-matris + pozitif RHS ⇒ pozitiflik korunur.
     """
     xp = backend.xp()
     h = x_hat[1:] - x_hat[:-1]
     dpsi = psi[1:] - psi[:-1]
-    Bp = bernoulli(dpsi)      # B(+Δψ̂) kenarlarda
+    Bp = bernoulli(dpsi)
     Bm = bernoulli(-dpsi)
     if carrier == "n":
-        e_lo, e_hi = Bm / h, Bp / h        # kenar katsayıları: (sol dugum, sag dugum)
+        w_lo, w_hi = mu_hat * Bm / h, mu_hat * Bp / h   # (sol-düğüm, sağ-düğüm) kenar ağırlıkları
     else:
-        e_lo, e_hi = Bp / h, Bm / h
+        w_lo, w_hi = mu_hat * Bp / h, mu_hat * Bm / h
     n_in = len(x_hat) - 2
     sub = xp.empty(n_in); diag = xp.empty(n_in); sup = xp.empty(n_in)
-    sub[:] = e_lo[:-1]
-    sup[:] = e_hi[1:]
-    diag[:] = -(e_hi[:-1] + e_lo[1:])
+    sub[:] = -w_lo[:-1]
+    sup[:] = -w_hi[1:]
+    diag[:] = w_hi[:-1] + w_lo[1:]
     rhs = xp.zeros(n_in)
+    if src_lin is not None:
+        diag[:] = diag + src_lin
+        rhs[:] = rhs + src_const
     rhs[0] -= sub[0] * bc_left
     rhs[-1] -= sup[-1] * bc_right
     u = backend.solve_tridiag(sub, diag, sup, rhs)
@@ -190,11 +204,32 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
     psi[0] = v_hat + math.log(nL / delta)
     psi[-1] = math.log(nR / delta)
 
+    mu_scale0 = max(dev.mu_n, dev.mu_p)
+    mun_hat, mup_hat = dev.mu_n / mu_scale0, dev.mu_p / mu_scale0
+    t0 = dev.L_D ** 2 / (dev.ut * mu_scale0)          # zaman ölçeği [s]
+    hm_all = x_hat[1:-1] - x_hat[:-2]
+    hp_all = x_hat[2:] - x_hat[1:-1]
+    hbar = 0.5 * (hm_all + hp_all)
+    n_h = delta * xp.exp(xp.clip(psi - phi_n, -700, 700))
+    p_h = delta * xp.exp(xp.clip(phi_p - psi, -700, 700))
+
     for g in range(max_gummel):
         psi_old = xp.array(psi, copy=True)
         psi, _ = _poisson_newton(dev, x_hat, psi, phi_n, phi_p)
-        n_h = _continuity_solve(dev, x_hat, psi, "n", nL, nR)
-        p_h = _continuity_solve(dev, x_hat, psi, "p", pL, pR)
+        if dev.tau_n is not None:
+            tau_n_hat, tau_p_hat = dev.tau_n / t0, dev.tau_p / t0
+            den = (tau_p_hat * (n_h[1:-1] + delta)
+                   + tau_n_hat * (p_h[1:-1] + delta))
+            lin_n = hbar * p_h[1:-1] / den
+            lin_p = hbar * n_h[1:-1] / den
+            const = hbar * delta * delta / den
+            n_h = _continuity_solve(dev, x_hat, psi, "n", nL, nR,
+                                    mun_hat, lin_n, const)
+            p_h = _continuity_solve(dev, x_hat, psi, "p", pL, pR,
+                                    mup_hat, lin_p, const)
+        else:
+            n_h = _continuity_solve(dev, x_hat, psi, "n", nL, nR, mun_hat)
+            p_h = _continuity_solve(dev, x_hat, psi, "p", pL, pR, mup_hat)
         phi_n = psi - xp.log(n_h / delta)
         phi_p = psi + xp.log(p_h / delta)
         if float(xp.max(xp.abs(psi - psi_old))) < gummel_tol:
