@@ -41,6 +41,27 @@ def cottrell_dimensionless(T: float) -> float:
     return 1.0 / math.sqrt(math.pi * T)
 
 
+#: Reversible LSV/CV boyutsuz tepe akımı (tablolanmış; Nicholson-Shain 1964).
+#: Epistemik temel: (a) üç kitap çapraz (Compton / Britz / Bard&Faulkner),
+#: (b) TARHAN çözücüsünün BAĞIMSIZ reprodüksiyonu J_p = 0.44636 (rank 8,
+#: üç çözünürlükte kararlı). Boyutlu form: randles_sevcik_peak_current.
+REVERSIBLE_LSV_PEAK = 0.4463
+
+
+def randles_sevcik_peak_current(n: float, F: float, A: float, c0: float,
+                                D: float, v: float, R: float, T: float) -> float:
+    """Randles–Ševčík tepe akımı i_p = 0.4463·n·F·A·c0·sqrt(n·F·v·D/(R·T)) [A].
+
+    Katman: first-principles (oracle-verified) — physics_verify 2/2
+    (DIMENSIONAL + NUMERIC: i_p(1 mM-eşdeğeri, 0.1 V/s) = 2.6865e-4 A), 2026-07-03;
+    KB kartı electrochemistry/randles-sevcik. 0.4463 sabiti tablolanmış +
+    TARHAN çözücüsüyle bağımsız yeniden üretilmiş (test_rank08_cv_peak.py).
+    Geçerlilik: reversible (Nernstian) tek-elektron çifti, planar yarı-sonsuz
+    difüzyon, 25°C-tipi rejimde eşit D. Birimler SI; v [V/s].
+    """
+    return 0.4463 * n * F * A * c0 * math.sqrt(n * F * v * D / (R * T))
+
+
 # --------------------------------------------------------------------------- #
 # PEM yakıt pili — Nafion membran (Springer 1991)
 # --------------------------------------------------------------------------- #

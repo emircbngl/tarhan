@@ -16,7 +16,7 @@ pytest suite'idir (`pytest` ile koşar, CI her push'ta işletir).
 | 5 | Hu Örnek 4-2: C-V doping çıkarımı | Hu Böl. 4 | N_l=6e15, N_h=1.8e18 cm⁻³ | ⏳ Hu PDF birim-konvansiyonu transkripsiyonu şart (kör hesap 1e8 sapıyor) | — |
 | 6 | PEMFC kayıp-merdiveni | O'Hayre 3e, Böl. 2-5 işlenmiş örnekler | kutulu basılı cevaplar | ⏳ baskı transkripsiyonu (Internet Archive borrow) | — |
 | 7 | Gözlenen yakınsama mertebeleri | Linge & Langtangen §1.1.4, §3.6.6 | central/CN→2, FE→1 | ✅ 2.0000 / 1.0000 / 2.0002 | `layer0/numerics/test_rank07_convergence_rates.py` |
-| 8 | Reversible CV tepe ψ_p | Compton ⊕ Britz ⊕ Bard&Faulkner | 0.4463 (3 kitap çapraz) | ⏳ sıradaki çözücü-hedefi | — |
+| 8 | Reversible CV tepe ψ_p | Compton ⊕ Britz ⊕ Bard&Faulkner | 0.4463 (3 kitap çapraz); θ_p=−1.109; Δθ_yarım=2.20 | ✅ J_p=0.44636 (3 çözünürlükte kararlı); θ_p=−1.109; 2.2023. Boyutlu Randles–Ševčík oracle 2/2 VERIFIED | `layer0/electrochem/test_rank08_cv_peak.py` |
 | 9 | Pierret junction + Shockley eğimleri | Pierret Böl. 5-6 | V_bi=0.716 V; 60/120 mV/dekad | ⏳ | — |
 | 10 | SG vs central-difference akı | Farrell (WIAS 2263); Selberherr | SG sıfır: U_T·ln10 TAM | ✅ 8.9e-16; CD 18/11'de yanlış + yanlış işaret | `layer0/numerics/test_rank10_sg_flux.py` |
 | 11 | Levich RDE limit akımı | Newman & Thomas-Alyea 3e | 0.620 sabiti | ⏳ | — |
