@@ -35,7 +35,7 @@ Every function in `tarhan.physics` carries an explicit honesty tier:
 `first-principles (oracle-verified)` / `textbook (reproduced)` / `empirical fit`.
 Reduced-precision backends can never be the truth path (see `tarhan/backend.py`).
 
-## Layer-0 validation catalog (13/13 — first catalog COMPLETE)
+## Layer-0 validation catalog (13/13 — first catalog COMPLETE) + flagship device solver
 
 | # | Case | Source | Status |
 |---|------|--------|--------|
@@ -52,6 +52,8 @@ Reduced-precision backends can never be the truth path (see `tarhan/backend.py`)
 | 11 | Levich RDE limiting current (first convection term) | Newman & Thomas-Alyea 3e | ✅ two independent routes agree to 5e-7 on 0.620450; FD order ≈2; √ω scaling exact |
 | 12 | End-to-end 1D SOFC cell voltage (first Layer-3 domain model) | O'Hayre 3e §6.2, Table 6.4 | ✅ ASR=0.176 Ω·cm², η_ohm=0.088 V, η_cat=0.158 V, V=0.754 V — all printed |
 | 10 | Scharfetter–Gummel vs central-difference flux | Farrell et al. (WIAS 2263); Selberherr | ✅ equilibrium at U_T·ln10 to 9e-16 |
+
+| ⚑ | **Flagship: 1D pn-diode drift-diffusion (Gummel + Scharfetter-Gummel)** | Selberherr; Farrell (WIAS 2263); short-base analytics | ✅ V_bi to 0.6 µV; ideality 1.000-1.002; absolute J vs closed form 0.3%; **independently reproduces Sze's ψ_bi−2kT/q correction to 0.03%**; discrete conservation ~1e-8 |
 
 See [`validation/CATALOG.md`](validation/CATALOG.md) for details, provenance and
 license flags. Code is never copied from sources — algorithms are reimplemented and
