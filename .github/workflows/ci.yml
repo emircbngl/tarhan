@@ -28,3 +28,7 @@ jobs:
         env:
           MPLBACKEND: Agg
         run: tarhan demo --no-show --save demo.png
+      - name: Diode demo smoke (flagship solver, self-verifying)
+        env:
+          MPLBACKEND: Agg
+        run: tarhan demo --case diode --no-show --save diode.png
