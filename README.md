@@ -35,7 +35,7 @@ Every function in `tarhan.physics` carries an explicit honesty tier:
 `first-principles (oracle-verified)` / `textbook (reproduced)` / `empirical fit`.
 Reduced-precision backends can never be the truth path (see `tarhan/backend.py`).
 
-## Layer-0 validation catalog (8/13 reproduced so far)
+## Layer-0 validation catalog (9/13 reproduced so far)
 
 | # | Case | Source | Status |
 |---|------|--------|--------|
@@ -46,6 +46,7 @@ Reduced-precision backends can never be the truth path (see `tarhan/backend.py`)
 | 4 | Semi-integral of Cottrell current = const | Oldham, Myland & Bond | ✅ measured order 0.50, Richardson → 1.000000 |
 | 8 | Reversible CV peak ψ_p = 0.4463 (solver-level) | Compton ⊕ Britz ⊕ Bard & Faulkner | ✅ J_p=0.44636, θ_p=−1.109, half-width 2.202 |
 | 7 | Observed convergence-rate harness | Linge & Langtangen §1.1.4, §3.6.6 | ✅ 2.0000 / 1.0000 / 2.0002 |
+| 9 | Pierret step junction + Shockley log-slopes | Pierret, *Semiconductor Device Fundamentals* Ch. 5-6 | ✅ V_bi=0.716 V, W=0.972 μm (pins ε_r=11.8), 59.6/119.3 mV/dec |
 | 10 | Scharfetter–Gummel vs central-difference flux | Farrell et al. (WIAS 2263); Selberherr | ✅ equilibrium at U_T·ln10 to 9e-16 |
 
 See [`validation/CATALOG.md`](validation/CATALOG.md) for details, provenance and

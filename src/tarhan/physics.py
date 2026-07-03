@@ -112,3 +112,28 @@ def depletion_width_one_sided(eps_s: float, phi_bi: float, q: float, N_light: fl
     konvansiyonunda [cm] (εs [F/cm], N [cm^-3]).
     """
     return math.sqrt(2.0 * eps_s * phi_bi / (q * N_light))
+
+
+def depletion_width_step_junction(eps_s: float, phi_bi: float, q: float,
+                                  Na: float, Nd: float) -> float:
+    """İki-yanlı adım eklem depletion genişliği W = sqrt(2·εs·φ_bi·(1/Na+1/Nd)/q).
+
+    Katman: textbook (reproduced) — Pierret, Semiconductor Device Fundamentals,
+    Böl. 5 çapası (Na=1e17, Nd=1e15: V_bi=0.716 V, W=0.972 μm; rank 9).
+    NOT: çapa aritmetiği ε_r≈11.8'i sabitler (katalog aktarımı 11.7 idi — 0.967 μm
+    verir, çapayı üretemez; xfail testi belgeliyor). Birim: [cm] (εs [F/cm]).
+    """
+    return math.sqrt(2.0 * eps_s * phi_bi * (1.0 / Na + 1.0 / Nd) / q)
+
+
+def shockley_diode_current(I0: float, V: float, n_ideality: float, kT_q: float) -> float:
+    """Shockley diyot denklemi i = I0·(exp(V/(n·kT/q)) − 1) [A].
+
+    Katman: first-principles (oracle-verified) — physics_verify (DIMENSIONAL +
+    NUMERIC + LIMIT V→−∞ ⇒ i→−I0), 2026-07-03; KB kartı
+    semiconductors/shockley-diode-equation. Log-eğim: dV/dlog10(i) =
+    n·(kT/q)·ln10 — 300 K'de 59.6 mV/dekad (n=1, "60"), 119.3 (n=2, "120");
+    rank-9 testi eğimleri sayısal I-V'den ölçerek doğrular.
+    Geçerlilik: ideal diyot (seri direnç yok, yüksek-enjeksiyon yok).
+    """
+    return I0 * (math.exp(V / (n_ideality * kT_q)) - 1.0)
