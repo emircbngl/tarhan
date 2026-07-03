@@ -19,7 +19,7 @@ pytest suite'idir (`pytest` ile koşar, CI her push'ta işletir).
 | 8 | Reversible CV tepe ψ_p | Compton ⊕ Britz ⊕ Bard&Faulkner | 0.4463 (3 kitap çapraz); θ_p=−1.109; Δθ_yarım=2.20 | ✅ J_p=0.44636 (3 çözünürlükte kararlı); θ_p=−1.109; 2.2023. Boyutlu Randles–Ševčík oracle 2/2 VERIFIED | `layer0/electrochem/test_rank08_cv_peak.py` |
 | 9 | Pierret junction + Shockley eğimleri | Pierret Böl. 5-6 | V_bi=0.716 V; W=0.972 μm; 60/120 mV/dekad | ✅ V_bi=0.7156→0.716; W=0.9716→0.972 (ε_r=11.8'i sabitler — katalog aktarımı 11.7 `xfail` ile belgeli); eğimler 59.64/119.27 (nominal %1 içinde). Shockley oracle 3/3 VERIFIED | `layer0/semiconductor/test_rank09_pierret_shockley.py` |
 | 10 | SG vs central-difference akı | Farrell (WIAS 2263); Selberherr | SG sıfır: U_T·ln10 TAM | ✅ 8.9e-16; CD 18/11'de yanlış + yanlış işaret | `layer0/numerics/test_rank10_sg_flux.py` |
-| 11 | Levich RDE limit akımı | Newman & Thomas-Alyea 3e | 0.620 sabiti | ⏳ | — |
+| 11 | Levich RDE limit akımı (İLK konveksiyon terimi) | Newman & Thomas-Alyea 3e; Cochran a=0.51023 | 0.620 sabiti <%0.5; j_L∝√ω | ✅ iki bağımsız yol (Γ'sız kuadratür + FD/Thomas) 5e-7 mutabakat → 0.620450; FD mertebe ≈2; √ω ölçeklemesi tam; boyutlu form oracle 2/2 VERIFIED. **Rank-11 dersi (physics_learn'de): elle bileşik-sabit hesabı 0.620469 vermişti — çift-yol yakaladı; sabitler makine-değerlendirilir** | `layer0/electrochem/test_rank11_levich.py` |
 | 12 | Tam PEMFC polarizasyon eğrisi | Barbir 2e / Kim 1995 | V(i) tablosu | ⏳ | — |
 
 ## Kurallar

@@ -35,7 +35,7 @@ Every function in `tarhan.physics` carries an explicit honesty tier:
 `first-principles (oracle-verified)` / `textbook (reproduced)` / `empirical fit`.
 Reduced-precision backends can never be the truth path (see `tarhan/backend.py`).
 
-## Layer-0 validation catalog (12/13 reproduced so far)
+## Layer-0 validation catalog (13/13 — first catalog COMPLETE)
 
 | # | Case | Source | Status |
 |---|------|--------|--------|
@@ -49,6 +49,7 @@ Reduced-precision backends can never be the truth path (see `tarhan/backend.py`)
 | 8 | Reversible CV peak ψ_p = 0.4463 (solver-level) | Compton ⊕ Britz ⊕ Bard & Faulkner | ✅ J_p=0.44636, θ_p=−1.109, half-width 2.202 |
 | 7 | Observed convergence-rate harness | Linge & Langtangen §1.1.4, §3.6.6 | ✅ 2.0000 / 1.0000 / 2.0002 |
 | 9 | Pierret step junction + Shockley log-slopes | Pierret, *Semiconductor Device Fundamentals* Ch. 5-6 | ✅ V_bi=0.716 V, W=0.972 μm (pins ε_r=11.8), 59.6/119.3 mV/dec |
+| 11 | Levich RDE limiting current (first convection term) | Newman & Thomas-Alyea 3e | ✅ two independent routes agree to 5e-7 on 0.620450; FD order ≈2; √ω scaling exact |
 | 12 | End-to-end 1D SOFC cell voltage (first Layer-3 domain model) | O'Hayre 3e §6.2, Table 6.4 | ✅ ASR=0.176 Ω·cm², η_ohm=0.088 V, η_cat=0.158 V, V=0.754 V — all printed |
 | 10 | Scharfetter–Gummel vs central-difference flux | Farrell et al. (WIAS 2263); Selberherr | ✅ equilibrium at U_T·ln10 to 9e-16 |
 

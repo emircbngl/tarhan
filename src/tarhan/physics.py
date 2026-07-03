@@ -149,6 +149,28 @@ def concentration_overpotential(c_coeff: float, j: float, j_l: float) -> float:
     return c_coeff * math.log(j_l / (j_l - j))
 
 
+#: Levich sabiti (0.51023/3)^(1/3)/Γ(4/3) — Cochran a=0.51023 ile. Epistemik temel:
+#: iki bağımsız TARHAN sayısal yolu (Γ'sız kuadratür + FD/BVP) 5e-7 içinde mutabık +
+#: oracle NUMERIC; literatür "0.620" (3 hane) ✓, 0.62048 varyantı Cochran-hassasiyeti.
+#: Rank-11 dersi: elle ara-hesap 0.620469 vermişti — makine-değerlendirme + çift-yol şart.
+LEVICH_CONSTANT = 0.620450
+
+
+def levich_limiting_current(n: float, F: float, D: float, nu: float,
+                            omega: float, c_bulk: float) -> float:
+    """Levich RDE limit akım yoğunluğu j_L = 0.62045·n·F·D^(2/3)·ν^(−1/6)·ω^(1/2)·c.
+
+    Katman: first-principles (oracle-verified) — physics_verify 2/2 (DIMENSIONAL
+    + NUMERIC 6.12606 A/m² @ 1000 rpm, sulu-tipik parametreler), 2026-07-03;
+    KB kartı electrochemistry/levich-equation. Sabitin türetimi ve çift-yol
+    reprodüksiyonu: numerics/convection.py + test_rank11_levich.py. j_L ∝ √ω
+    (Koutecký-Levich analizi bunun üstüne kurulur). Birimler SI; ω [rad/s].
+    Geçerlilik: laminer RDE akışı, Cochran yakın-yüzey profili, Sc >> 1.
+    """
+    return LEVICH_CONSTANT * n * F * D ** (2.0 / 3.0) * nu ** (-1.0 / 6.0) \
+        * math.sqrt(omega) * c_bulk
+
+
 # --------------------------------------------------------------------------- #
 # PEM yakıt pili — Nafion membran (Springer 1991)
 # --------------------------------------------------------------------------- #
