@@ -1,0 +1,40 @@
+# Changelog
+
+Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
+
+## [0.1.0.dev0] — yayımlanmadı
+
+İlk halka-açık-adayı iskelet: "kurulunca çalışır" + doğrulama-önce disiplini.
+
+### Çekirdek
+- Backend dikişi (`tarhan.backend`): array-ops tek modül, f64 truth-path,
+  `solve_tridiag`; hızlandırma backend'leri v0.2 kapısında.
+- `tarhan.physics`: 22 fonksiyon, her biri dürüstlük katmanlı
+  (first-principles/textbook/empirical) — 15+ formül physics_verify
+  oracle'ından geçmiş durumda.
+- Numerics: Bernoulli/SG akıları, FE difüzyon + Cottrell, Grünwald
+  yarı-integral, convergence_rates + Richardson, Levich konveksiyonu,
+  voltametri (Nernst + Butler-Volmer tam-CV).
+- Modeller (Layer-3): 1D SOFC hücre gerilimi (O'Hayre §6.2 birebir);
+  **1D pn-diyot Gummel/Scharfetter-Gummel drift-diffusion** (SRH'li) —
+  V_bi µV-düzeyi, ideality 1.000-1.002, DEVSIM'le 1e-3-altı mutabakat,
+  Sze ψ_bi−2kT/q düzeltmesi Richardson limitinde 4e-5.
+
+### Doğrulama (validation/CATALOG.md)
+- Layer-0 kataloğu: rank 0-14 tamam (yalnız Sod bilinçli kapsam-dışı);
+  103+ test, 4 strict-xfail = 4 belgelenmiş kaynak-tutarsızlığı
+  (Springer λ(0.3), O'Hayre D-çelişkisi, Hu A²-kayması, Pierret ε_r).
+- Çapraz-oracle: DEVSIM 2.10 (opsiyonel `[oracle]` extra).
+
+### Araçlar
+- `tarhan demo` (Cottrell) + `tarhan demo --case diode` — öz-denetimli,
+  headless PNG; CI'da her push'ta koşar.
+- `tarhan-mcp` — FastMCP sunucusu (opsiyonel `[mcp]` extra): 8 araç
+  (diyot I-V/band, CV, Nicholson, SOFC, kayıp merdiveni, formül kataloğu),
+  girdi-korumalı, çıktı-desimatlı.
+
+### Bilinen açık kalemler
+- DD çözücüsü için temiz yakınsama-mertebesi çalışması coupled-Newton/MMS
+  ister (J-öz-yakınsaması Gummel gürültü tabanıyla ~1e-4-bağılda sınırlı).
+- GUI yok (karar gereği v0.2'de, kernel-oracle-yeşili sonrası).
+- LICENSE/CITATION yasal isim: yayın öncesi TODO(owner).

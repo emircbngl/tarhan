@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tarhan"
-version = "0.0.1.dev0"
+version = "0.1.0.dev0"
 description = "Physics-first materials simulator: galvanic cells, fuel cells and semiconductor devices on one charged-species transport kernel"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,10 +25,12 @@ dependencies = ["numpy>=1.26", "scipy>=1.11", "matplotlib>=3.8"]
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 oracle = ["devsim>=2.9"]   # çapraz-oracle testleri (opsiyonel)
+mcp = ["mcp>=1.1"]         # AI-ajan köprüsü (tarhan-mcp)
 # gelecek (v0.2+ kapısında): gui = ["pyside6>=6.6"], mlx = [...], fast = [...]
 
 [project.scripts]
 tarhan = "tarhan.cli:main"
+tarhan-mcp = "tarhan.mcp_server:main"
 
 [project.urls]
 Repository = "https://github.com/emircbngl/tarhan"

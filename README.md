@@ -16,10 +16,16 @@ Named after **Tarhan**, protector of forges and metalworkers in Turkic mythology
 
 ```bash
 pip install -e ".[dev]"
-tarhan demo          # zero-config: runs a converged Cottrell chronoamperometry
-                     # reproduction and plots simulated vs analytic current
-pytest               # run the Layer-0 validation catalog
+tarhan demo                 # zero-config: converged Cottrell reproduction + plot
+tarhan demo --case diode    # flagship drift-diffusion diode: I-V + band diagram
+pytest                      # run the Layer-0 validation catalog
 ```
+
+Optional extras: `tarhan[mcp]` — MCP server (`tarhan-mcp`) exposing 8 guarded
+tools (diode I-V/band diagram, cyclic voltammetry incl. Butler-Volmer, Nicholson
+working curve, SOFC polarization, fuel-cell loss ladder, honesty-tier formula
+catalog) so AI agents can drive the engine; `tarhan[oracle]` — DEVSIM
+cross-validation tests. Known-good pins: `pip install tarhan -c constraints.txt`.
 
 ## The honesty model
 
