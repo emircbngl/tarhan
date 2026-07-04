@@ -55,6 +55,7 @@ Reduced-precision backends can never be the truth path (see `tarhan/backend.py`)
 
 | ⚑ | **Flagship: 1D pn-diode drift-diffusion (Gummel + Scharfetter-Gummel)** | Selberherr; Farrell (WIAS 2263); short-base analytics | ✅ V_bi to 0.6 µV; ideality 1.000-1.002; absolute J vs closed form 0.3%; **independently reproduces Sze's ψ_bi−2kT/q correction to 0.03%**; discrete conservation ~1e-8 |
 | 13 | Solar-cell FF/V_oc anchors (dual-route: Green 1981 vs exact maximization) | Green, Solid-State Electronics 24 (1981); PVEducation | ✅ agreement ≤1.4e-4 across v_oc 10.5-30; both oracle-VERIFIED |
+| 14 | Nicholson (1965) ΔEp-ψ working table, quasi-reversible CV (Butler-Volmer boundary) | Nicholson, Anal. Chem. 37, 1351 — primary-source PDF transcription | ✅ 13/13 pairs within ±2 mV (our values grid-converged; residual = 1965-era table granularity); BV→Nernst limit 0.08 mV |
 | ⚑ | **Flagship + SRH recombination** | Shockley-Read/Hall 1952; Sah-Noyce-Shockley 1957 | ✅ τ→∞ regression exact; conservation with R active 1e-7; **minority diffusion length emerges from profile: L_p/√(Dτ)=0.99**; two-regime ideality ~1.8→1.08 |
 
 See [`validation/CATALOG.md`](validation/CATALOG.md) for details, provenance and
