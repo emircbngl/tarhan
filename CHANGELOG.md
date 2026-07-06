@@ -16,14 +16,21 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   yarı-integral, convergence_rates + Richardson, Levich konveksiyonu,
   voltametri (Nernst + Butler-Volmer tam-CV).
 - Modeller (Layer-3): 1D SOFC hücre gerilimi (O'Hayre §6.2 birebir);
+  0D PEMFC polarizasyon eğrisi (`models/pemfc0d`, Kim-1995/Barbir seti —
+  oracle-doğrulamalı kayıp-merdiveni MONTAJI, yeni formül yok; Kim
+  m·exp(n·i) biçimi parametre-zorunlu);
   **1D pn-diyot Gummel/Scharfetter-Gummel drift-diffusion** (SRH'li) —
   V_bi µV-düzeyi, ideality 1.000-1.002, DEVSIM'le 1e-3-altı mutabakat,
   Sze ψ_bi−2kT/q düzeltmesi Richardson limitinde 4e-5.
 
 ### Doğrulama (validation/CATALOG.md)
-- Layer-0 kataloğu: rank 0-14 tamam (yalnız Sod bilinçli kapsam-dışı);
-  103+ test, 4 strict-xfail = 4 belgelenmiş kaynak-tutarsızlığı
-  (Springer λ(0.3), O'Hayre D-çelişkisi, Hu A²-kayması, Pierret ε_r).
+- Layer-0 kataloğu: rank 0-14 TAMAM — orijinal rank-12 hedefi (Kim/Barbir
+  parametrik PEMFC V(i)) dahil (yalnız Sod bilinçli kapsam-dışı);
+  129 PASS + 5 strict-xfail (devsim'li lokal ölçüm; CI devsim'siz skip'ler).
+  Xfail'lerin 4'ü belgelenmiş kaynak-tutarsızlığı (Springer λ(0.3),
+  O'Hayre D-çelişkisi, Hu A²-kayması, Pierret ε_r), 5.'si dolaşımdaki
+  Kim m·exp(n·i) sabit-aktarımı (0.085, 1.1) — aynı i_L fiziğiyle 5.3×
+  tutarsız, kaynak-sayfa teyidi açık kalem.
 - Çapraz-oracle: DEVSIM 2.10 (opsiyonel `[oracle]` extra).
 
 ### Araçlar
