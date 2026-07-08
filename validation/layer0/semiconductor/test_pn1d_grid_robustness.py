@@ -5,9 +5,12 @@ GRID-YAKINSAMA ÇALIŞMASI BULGULARI (2026-07-04, dürüst kayıt):
    düzeltmesi ((Nd−Na)/2) uniform 10→5 nm J-farkını ~10× küçülttü (1.3e-8→1.7e-9).
 2. J-tabanlı öz-yakınsama MERTEBE ölçümü ~1e-4-bağıl altında Gummel sabit-nokta
    gürültü tabanına çarpar (tol-yolu değişince J ~1e-4-bağıl oynar; tol'u sıkmak
-   ince gridde yuvarlama platosuna takılır). Temiz mertebe çalışması coupled-Newton
-   veya gerçek MMS ister — Faz-1 AÇIK KALEMİ olarak roadmap'te (keyfî mertebe
-   İDDİA EDİLMİYOR; rank-4 dersinin devamı).
+   ince gridde yuvarlama platosuna takılır) — bu bir DIŞ-İTERASYON artefaktı,
+   ayrıklaştırma özelliği DEĞİL. TEMİZ MERTEBE MMS ile ölçüldü (2026-07-09,
+   `test_pn1d_mms_order.py`): izole `_poisson_newton` ve `_continuity_solve`
+   operatörleri her ikisi de O(h²) (2.000) — makine-hassasiyetine çözüldüklerinden
+   Gummel tabanı atlatıldı. KALAN dar kalem: tam-kuplajlı SOLVE mertebesi coupled-Newton
+   ister. (Keyfî mertebe İDDİA EDİLMEDİ; rank-4 dersinin devamı.)
 3. Bugün dürüstçe sabitlenen: MESH-BAĞIMSIZLIK BANDI — pratik grid ailesi boyunca
    J'nin bağıl yayılımı küçük (ölçüm: graded-baseline vs uniform 10/5 nm ≤ ~6e-5).
 """

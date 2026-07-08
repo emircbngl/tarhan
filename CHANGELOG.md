@@ -50,9 +50,16 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   korunum makine-hassasiyeti (16 dekad), 3 bağımsız yöntem ~1e-9, SUNDIALS
   çapraz-kod pin; dürüst bulgu — SUNDIALS basılı tablosu gevşek-tol demo'su,
   t≥4e9'da kendi değerleri ~%1–33 kayar (yüksek-hassasiyet Radau ile teyitli).
+- pn1d MMS uzamsal-mertebe (`layer0/semiconductor/test_pn1d_mms_order.py`, 3 test):
+  gerçek `_poisson_newton` ve `_continuity_solve` operatörlerine ayrı ayrı MMS —
+  ikisi de temiz **O(h²)** (6 grid, son oran 2.000). Faz-1 "temiz mertebe" açık
+  kalemini MMS yoluyla kapatır (izole operatörler makine-hassasiyetine çözülür,
+  Gummel gürültü tabanı atlatılır).
 
 ### Bilinen açık kalemler
-- DD çözücüsü için temiz yakınsama-mertebesi çalışması coupled-Newton/MMS
-  ister (J-öz-yakınsaması Gummel gürültü tabanıyla ~1e-4-bağılda sınırlı).
+- Çekirdek uzamsal operatörlerin mertebesi MMS ile O(h²) doğrulandı (yukarı).
+  KALAN: tam-KUPLAJLI çözümün (Poisson⊕süreklilik, Gummel-bağlı) mertebesini
+  gerçek-cihaz rejiminde ~1e-4-bağıl Gummel gürültü tabanının altında ölçmek
+  tam-kuplajlı Newton ister (daha dar tanımlı açık kalem).
 - GUI yok (karar gereği v0.2'de, kernel-oracle-yeşili sonrası).
 - LICENSE/CITATION yasal isim: yayın öncesi TODO(owner).
