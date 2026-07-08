@@ -50,16 +50,19 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   korunum makine-hassasiyeti (16 dekad), 3 bağımsız yöntem ~1e-9, SUNDIALS
   çapraz-kod pin; dürüst bulgu — SUNDIALS basılı tablosu gevşek-tol demo'su,
   t≥4e9'da kendi değerleri ~%1–33 kayar (yüksek-hassasiyet Radau ile teyitli).
-- pn1d MMS uzamsal-mertebe (`layer0/semiconductor/test_pn1d_mms_order.py`, 3 test):
-  gerçek `_poisson_newton` ve `_continuity_solve` operatörlerine ayrı ayrı MMS —
-  ikisi de temiz **O(h²)** (6 grid, son oran 2.000). Faz-1 "temiz mertebe" açık
-  kalemini MMS yoluyla kapatır (izole operatörler makine-hassasiyetine çözülür,
-  Gummel gürültü tabanı atlatılır).
+- pn1d MMS uzamsal-mertebe (`layer0/semiconductor/test_pn1d_mms_order.py`, 5 test):
+  (a) izole `_poisson_newton` ve `_continuity_solve` operatörleri ikisi de temiz
+  **O(h²)** (6 grid, 2.000); (b) TAM-KUPLAJLI (ψ,n,p) sistem coupled-Newton'la
+  (scipy.optimize.root, makine-hassasiyetine) MMS'te yine **O(h²)** (2.000) —
+  kuplajlı rezidüel motorun `bernoulli` SG kernel'i + Laplacian'ı + akı işaretleriyle
+  kurulur ve motorun Gummel çözümünde ‖F‖~1e-14 olduğu KANITLI. Faz-1 "temiz mertebe"
+  açık kalemini KAPATIR (Gummel gürültü tabanı bir dış-iterasyon artefaktıydı;
+  makine-hassasiyetli çözümlerle atlatıldı). Mimari: rezidüel bizim, Newton scipy'a
+  delege (transient/BDF ile aynı çizgi).
 
 ### Bilinen açık kalemler
-- Çekirdek uzamsal operatörlerin mertebesi MMS ile O(h²) doğrulandı (yukarı).
-  KALAN: tam-KUPLAJLI çözümün (Poisson⊕süreklilik, Gummel-bağlı) mertebesini
-  gerçek-cihaz rejiminde ~1e-4-bağıl Gummel gürültü tabanının altında ölçmek
-  tam-kuplajlı Newton ister (daha dar tanımlı açık kalem).
+- DD çözücüsünün uzamsal mertebesi (operatör-başına + tam-kuplajlı) MMS ile
+  O(h²) doğrulandı (yukarı) — mertebe sorusu kapandı. KALAN yalnız üretim-sınıfı
+  coupled-Newton MOTOR MODU (gerçek-cihaz continuation/robustluğu) ayrı bir özellik.
 - GUI yok (karar gereği v0.2'de, kernel-oracle-yeşili sonrası).
 - LICENSE/CITATION yasal isim: yayın öncesi TODO(owner).
