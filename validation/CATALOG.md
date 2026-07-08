@@ -25,6 +25,12 @@ pytest suite'idir (`pytest` ile koşar, CI her push'ta işletir).
 | 13 | Solar hücre FF/V_oc çapaları (çift-yol: Green 1981 vs tam maksimizasyon) | Green, Solid-State Electronics 24 (1981); PVEducation | FF₀ formülü ~1e-4 doğruluk sınıfı | ✅ çift-yol mutabakatı ≤1.4e-4 (v_oc 10.5-30); V_oc oracle 2/2 + FF₀ 3/3 VERIFIED | `layer0/semiconductor/test_rank13_solar_ff_voc.py` |
 | 14 | Nicholson (1965) ΔEp-ψ çalışma tablosu, quasi-reversible CV (BV Robin sınırı) | Nicholson, Anal. Chem. 37, 1351 — birincil-kaynak PDF transkripsiyonu | Tablo I: 13 (ψ, ΔEp·n) çifti | ✅ 13/13 çift ±2 mV (TARHAN değerleri grid-yakınsamış; artık fark 1965 tablo granülaritesi); BV(ψ=500)→Nernst limiti 0.08 mV | `layer0/electrochem/test_rank14_nicholson.py` |
 
+## Yetenek doğrulamaları (katalog ötesi — motora yeni kabiliyet)
+
+| # | Vaka | Kaynak | Beklenen | Durum | Test |
+|---|------|--------|----------|-------|------|
+| T1 | Robertson stiff kinetiği — **transient/BDF yeteneği** (`numerics/transient.py`; scipy-delege stiff entegratör, analitik Jacobian, no-silent-degrade) | Robertson 1966 / Hairer-Wanner "Solving ODEs II"; çapraz-kod: SUNDIALS CVODE cvRoberts_dns (cv_examples-5.7.0.pdf; RTOL/ATOL kaynak koddan doğrulandı) | Korunum y1+y2+y3=1; SUNDIALS basılı tablo (12 dekad) | ✅ yapısal korunum Σ(RHS)≡0 → invariant makine-hassasiyeti (16 dekad); analitik Jacobian↔FD ~1e-11; **3 bağımsız yöntem (Radau/BDF/LSODA) ~1e-9 mutabık**; SUNDIALS çapraz-kod pin: y3 tüm 12 dekad ≤4e-4, y1/y2 t≤4e8 ≤1e-3. **Dürüst bulgu:** SUNDIALS basılı tablosu gevşek-tol demo'su — t≥4e9'da kendi değerleri ~%1–33 kayar (yüksek-hassasiyet Radau ile teyitli; o rejimde gerçeğe korunum+tight-tol ile bağlanılır). Stiffness gerçekliği: RK45 [0,40]'ta BDF'ten ~740× nfev; y2 zirvesi 3.6487e-5 | `layer0/numerics/test_robertson_stiff.py` |
+
 ## Kurallar
 
 - **Kod kopyalanmaz** — lisans durumu ne olursa olsun (Britz Fortran: lisanssız;

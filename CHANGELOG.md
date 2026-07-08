@@ -14,7 +14,10 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   oracle'ından geçmiş durumda.
 - Numerics: Bernoulli/SG akıları, FE difüzyon + Cottrell, Grünwald
   yarı-integral, convergence_rates + Richardson, Levich konveksiyonu,
-  voltametri (Nernst + Butler-Volmer tam-CV).
+  voltametri (Nernst + Butler-Volmer tam-CV), **stiff zaman-entegrasyonu**
+  (`numerics/transient.py` — scipy-delege BDF/Radau/LSODA, analitik-Jacobian
+  öncelikli, f64 truth-path, sessiz degrade yasak; gelecek transient
+  elektrokimya/EIS için primitif).
 - Modeller (Layer-3): 1D SOFC hücre gerilimi (O'Hayre §6.2 birebir);
   0D PEMFC polarizasyon eğrisi (`models/pemfc0d`, Kim-1995/Barbir seti —
   oracle-doğrulamalı kayıp-merdiveni MONTAJI, yeni formül yok; Kim
@@ -31,7 +34,9 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   O'Hayre D-çelişkisi, Hu A²-kayması, Pierret ε_r), 5.'si dolaşımdaki
   Kim m·exp(n·i) sabit-aktarımı (0.085, 1.1) — aynı i_L fiziğiyle 5.3×
   tutarsız, kaynak-sayfa teyidi açık kalem.
-- Çapraz-oracle: DEVSIM 2.10 (opsiyonel `[oracle]` extra).
+- Çapraz-oracle: DEVSIM 2.10 (opsiyonel `[oracle]` extra); ayrıca **SUNDIALS
+  CVODE cvRoberts** basılı tablosu Robertson stiff yeteneğinin çapraz-kod pini
+  (transient yeteneği kaynaktan doğrulanmış tolerans setiyle).
 
 ### Araçlar
 - `tarhan demo` (Cottrell) + `tarhan demo --case diode` — öz-denetimli,
@@ -39,6 +44,12 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 - `tarhan-mcp` — FastMCP sunucusu (opsiyonel `[mcp]` extra): 8 araç
   (diyot I-V/band, CV, Nicholson, SOFC, kayıp merdiveni, formül kataloğu),
   girdi-korumalı, çıktı-desimatlı.
+
+### Yetenek doğrulamaları (katalog ötesi)
+- Robertson stiff kinetiği (`layer0/numerics/test_robertson_stiff.py`, 10 test):
+  korunum makine-hassasiyeti (16 dekad), 3 bağımsız yöntem ~1e-9, SUNDIALS
+  çapraz-kod pin; dürüst bulgu — SUNDIALS basılı tablosu gevşek-tol demo'su,
+  t≥4e9'da kendi değerleri ~%1–33 kayar (yüksek-hassasiyet Radau ile teyitli).
 
 ### Bilinen açık kalemler
 - DD çözücüsü için temiz yakınsama-mertebesi çalışması coupled-Newton/MMS
