@@ -2,9 +2,12 @@
 
 V(i) = E_r − η_act(i) − η_ohm(i) − η_conc(i)
 
-Kaynak: Barbir, *PEM Fuel Cells* 2e (2013) Ch.3'ün sunduğu parametrik eğri;
-denklemin kökeni Kim, Lee, Srinivasan & Chamberlin, J. Electrochem. Soc.
-142, 2670 (1995): V = E_r − b·log(i/i0) − R_i·i − m·exp(n·i).
+Merdiven biçimi: standart ders-kitabı polarizasyonu (O'Hayre-tarzı Tafel + ohmik
++ ln(i_L/(i_L−i)) konsantrasyon). Rank-12 parametre seti (E_r=1.229, i0=10^-6.912
+A/cm², α=0.5, R_i=0.19 Ω·cm², i_L=1.4 A/cm²) → **Spiegel, "PEM Fuel Cell Modeling
+and Simulation Using MATLAB" (2008)** / FuelCellStore. (ATIF DÜZELTMESİ 2026-07-09:
+önceki "Kim/Barbir" atfı yanlıştı; kaynak-araştırması Spiegel/FuelCellStore olarak
+belirledi.)
 
 Katman: montaj — her kayıp terimi tek tek oracle-doğrulamalı
 (tarhan.physics: activation_overpotential_tafel 3/3, ohmic_overpotential 4/4,
@@ -13,9 +16,12 @@ getirmez. Parametre seti vaka GİRDİSİDİR (motor hiçbir sabiti gömmez).
 
 Konsantrasyon kaybı iki biçimde:
   - ln-biçimi  η_conc = c·ln(i_L/(i_L−i))  (varsayılan; oracle-doğrulamalı)
-  - Kim m·exp(n·i) ampirik biçimi (opsiyonel; m ve n_exp vaka girdisi olarak
-    ZORUNLU — yaygın dolaşımdaki değerlerin kaynak-sayfa teyidi yok, bkz.
-    validation/layer0/test_rank12_pemfc_polarization.py strict-xfail)
+  - `kim_cell_voltage`: GERÇEK Kim, Lee, Srinivasan & Chamberlin (JES 142(8),
+    2670 (1995), DOI 10.1149/1.2050072) biçimi V=E₀−b·log₁₀(i)−R·i−m·exp(n·i) —
+    i_L KULLANMAZ (üstel terim tüm kütle-taşınım modelidir). Natif birimler
+    i[mA/cm²]/m[mV]/n[cm²/mA]; A/cm²'de temsili m≈3e-5 V, n≈8 cm²/A. m ve n_exp
+    vaka girdisi olarak ZORUNLU. NOT: dolaşımdaki (0.085 V, 1.1) Kim'in m,n'i
+    DEĞİL — Spiegel'in α₁/k'sidir (bkz. test_rank12 provenans testi).
 """
 from __future__ import annotations
 
@@ -37,15 +43,15 @@ _F = 96485.33212      # C/mol — CODATA
 
 @dataclass(frozen=True)
 class Pemfc0DParams:
-    """Kim/Barbir 0D hücre parametreleri (hepsi açık girdi; birimler A/cm² dünyası).
+    """0D PEMFC hücre parametreleri (hepsi açık girdi; birimler A/cm² dünyası).
 
     e_r      : tersinir hücre voltajı [V] (ör. 1.229 @ 25°C sıvı-su)
-    j0       : değişim akım yoğunluğu [A/cm²] (Kim seti: 10^-6.912)
-    alpha    : yük-transfer katsayısı (Kim seti: 0.5)
+    j0       : değişim akım yoğunluğu [A/cm²] (Spiegel seti: 10^-6.912)
+    alpha    : yük-transfer katsayısı (Spiegel seti: 0.5)
     n_e      : elektron sayısı Tafel eğiminde (PEMFC ORR pratiği n=2 ile
                b=RT·ln10/(α·n·F) ≈ 0.059 V/dekad @ 298 K — O'Hayre Örn. 3.3 çapası)
-    r_i      : alan-özgül direnç [Ω·cm²] (Kim seti: 0.19)
-    j_l      : limit akım yoğunluğu [A/cm²] (Kim seti: 1.4)
+    r_i      : alan-özgül direnç [Ω·cm²] (Spiegel seti: 0.19)
+    j_l      : limit akım yoğunluğu [A/cm²] (Spiegel seti: 1.4)
     c_conc   : ln-biçimi konsantrasyon katsayısı [V] (None ⇒ RT/(n_e·F)·(1+1/α),
                O'Hayre'nin c≈0.1 V sınıfındaki geleneksel seçimi)
     T        : sıcaklık [K]
@@ -93,8 +99,11 @@ def cell_voltage(p: Pemfc0DParams, j: float) -> tuple[float, dict]:
 def kim_cell_voltage(p: Pemfc0DParams, j: float, m: float, n_exp: float) -> float:
     """Kim-1995 ampirik biçim: V = E_r − b·log10(j/j0) − R_i·j − m·exp(n·j).
 
-    m [V] ve n_exp [cm²/A] fit sabitleri ZORUNLU girdi — TARHAN varsayılan
-    gömmez (dolaşımdaki değer çiftlerinin kaynak-sayfa teyidi açık kalem).
+    GERÇEK Kim (JES 142(8):2670, DOI 10.1149/1.2050072); i_L YOK, üstel terim tüm
+    kütle-taşınım modelidir. m [V] ve n_exp [cm²/A] fit sabitleri ZORUNLU girdi —
+    TARHAN varsayılan gömmez. A/cm²'de temsili m≈3e-5 V, n≈8 cm²/A (birincil natif
+    Tablo I: m=0.125 mV, n=0.00945 cm²/mA). Dolaşımdaki (0.085, 1.1) Kim'in DEĞİL,
+    Spiegel'in α₁/k'sidir — buraya sokulmaz (bkz. test_rank12 provenans testi).
     b, ladder'daki Tafel teriminin birebir kendisi (log10 tabanına çevrilmiş).
     """
     if j <= 0.0:

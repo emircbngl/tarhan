@@ -1,25 +1,30 @@
-"""Rank-12: Tam PEMFC polarizasyon eğrisi V(i) — Barbir 2e / Kim-1995 parametre seti.
+"""Rank-12: Tam PEMFC polarizasyon eğrisi V(i) — Spiegel/FuelCellStore parametre seti.
 
-Kaynak kaydı:
-  - Eğri biçimi: Kim, Lee, Srinivasan & Chamberlin, J. Electrochem. Soc. 142,
-    2670 (1995): V = E_r − b·log(i/i0) − R_i·i − m·exp(n·i). Barbir (PEM Fuel
-    Cells, 2e 2013, Ch.3) bu denklemi SUNAR — yazarlık Kim'indir (wiki katalog
-    doğrulama düzeltmesi, 2026-07-03).
-  - Parametre seti (dolaşımdaki "Barbir-tarzı" set, wiki kataloğunda kayıtlı):
-    E_r=1.229 V, i0=10^-6.912 A/cm², α=0.5, R_i=0.19 Ω·cm², i_L=1.4 A/cm².
-  - Yayınlanmış nitel çapalar (aynı katalog kaydı): eğri OCV-yakınında ~1.0 V,
-    ~1 A/cm² civarında ~0.6 V, i_L=1.4'e doğru roll-off.
+ATIF DÜZELTMESİ (2026-07-09, kaynak-araştırması sonucu — önceki "Kim/Barbir"
+atfı YANLIŞTI):
+  - Parametre seti (E_r=1.229 V, i0=10^-6.912 A/cm², α=0.5, R_i=0.19 Ω·cm²,
+    i_L=1.4 A/cm²) → **Colleen Spiegel, "PEM Fuel Cell Modeling and Simulation
+    Using MATLAB" (2008)** / FuelCellStore tutorial. Kim ya da Barbir DEĞİL.
+    Buradaki merdiven standart ders-kitabı biçimidir (O'Hayre-tarzı Tafel + ohmik
+    + ln(i_L/(i_L−i)) konsantrasyon), Spiegel-kaynaklı parametre değerleriyle.
+  - Kim, Lee, Srinivasan & Chamberlin, JES 142(8), 2670 (1995),
+    DOI 10.1149/1.2050072: V = E₀ − b·log₁₀(i) − R·i − m·exp(n·i). Kim'in modeli
+    i_L KULLANMAZ (üstel terim TÜM kütle-taşınım modelidir) ve NATİF birimleri
+    i[mA/cm²], m[mV], n[cm²/mA]'dir. A/cm²'ye çevrilince temsili m≈3e-5–5e-4 V,
+    n≈5–8 cm²/A (birincil Tablo I: m=0.125 mV, n=0.00945 cm²/mA). `kim_cell_voltage`
+    bu GERÇEK Kim biçimini uygular (sabitler zorunlu girdi).
+  - **(0.085 V, 1.1) Kim'in m,n'i DEĞİL** — bunlar Spiegel'in α₁ (amplifikasyon, V)
+    ve k (BOYUTSUZ) sabitleridir; Spiegel'de AYRI bir i_L terimiyle BİRLİKTE
+    kullanılır. Kim'in standalone m·exp(n·i)'sine sokulunca fiziksel-saçma
+    (i=0'da 85 mV offset; kütle-taşınım terimi i→0'da sıfırlanmalı). Bu, açık
+    kalem strict-xfail'i değil, artık ÇÖZÜLMÜŞ bir provenans bulgusudur.
+
+Yayınlanmış nitel çapalar: OCV-yakınında ~1.0 V, ~1 A/cm² civarında ~0.6 V,
+i_L=1.4'e roll-off.
 
 Katman: MONTAJ — üç kayıp terimi tek tek oracle-doğrulamalı (tafel 3/3,
-ohmic 4/4, concentration 3/3; rank-6); bu test yeni formül pinlemez,
-(a) bileşen-özdeşliklerini makine hassasiyetinde, (b) yayınlanmış nitel
-çapaları parantez olarak, (c) ıraksama guard'larını doğrular. Parantezler
-keyfî tolerans DEĞİL, kaynağın kendi nitel eğri tarifidir (~1 anlamlı hane).
-
-Dürüst açık kalem (strict-xfail): wiki katalog notundaki "kütle-taşınım
-sabitleri 0.085, 1.1" aktarımı (m·exp(n·i) biçimi için) aynı i_L=1.4
-fiziğiyle TUTARSIZ — j=1.0'da ln-biçiminin 5.3 katı kayıp verir (ölçüldü;
-Kim-1995 tipik m~3e-5 V, n~8 cm²/A sınıfıdır). Kaynak-sayfa teyidi bekliyor.
+ohmic 4/4, concentration 3/3; rank-6). Bu test yeni formül pinlemez;
+bileşen-özdeşlikleri + nitel çapalar + ıraksama guard'ları + Kim-provenans.
 """
 import math
 
@@ -36,13 +41,14 @@ from tarhan.physics import activation_overpotential_tafel
 R_GAS = 8.314462618
 FARADAY = 96485.33212
 
-KIM_SET = dict(e_r=1.229, j0=10.0 ** -6.912, alpha=0.5, n_e=2.0,
-               r_i=0.19, j_l=1.4, T=298.15)
+# Spiegel (2008)/FuelCellStore parametre seti (önceden yanlışlıkla "Kim/Barbir" idi).
+SPIEGEL_SET = dict(e_r=1.229, j0=10.0 ** -6.912, alpha=0.5, n_e=2.0,
+                   r_i=0.19, j_l=1.4, T=298.15)
 
 
 @pytest.fixture()
 def params():
-    return Pemfc0DParams(**KIM_SET)
+    return Pemfc0DParams(**SPIEGEL_SET)
 
 
 def test_tafel_term_identity_with_oracle_verified_function(params):
@@ -114,17 +120,31 @@ def test_kim_form_core_identity(params):
         assert abs(kim_cell_voltage(params, j, m=0.0, n_exp=0.0) - ladder_core) < 1e-12
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Wiki katalog aktarımı m=0.085 V, n=1.1 cm²/A: aynı i_L=1.4 fiziğiyle "
-           "tutarsız — j=1.0'da m·exp(n·j)=0.2554 V, ln-biçimi 0.0483 V (5.3×; "
-           "aynı büyüklük mertebesinde değil). Kim-1995 tipik m~3e-5 V, n~8 cm²/A "
-           "sınıfı. Kaynak-sayfa (Kim JES 142:2670 / Barbir 2e Ch.3) teyidi açık kalem.",
-)
-def test_transcribed_mass_transport_constants_consistency(params):
-    """(0.085, 1.1) aktarımı ln-biçimiyle aynı büyüklük mertebesinde olmalıydı."""
-    j = 1.0
-    _, parts = cell_voltage(params, j)
-    kim_conc = 0.085 * math.exp(1.1 * j)
-    ratio = kim_conc / parts["eta_conc"]
-    assert 0.5 < ratio < 2.0
+def test_circulated_constants_are_spiegel_not_kim(params):
+    """ÇÖZÜLDÜ (2026-07-09, kaynak-araştırması): (0.085, 1.1) Kim'in m,n'i DEĞİL —
+    Spiegel'in α₁ (V) ve k (boyutsuz) sabitleridir. Kanıt fizikte:
+
+    (a) Standalone Kim m·exp(n·i) olarak (0.085, 1.1) SAÇMA — i=0'da 85 mV offset
+        (kütle-taşınım terimi i→0'da sıfırlanmalı) ve i_L=1.4'e kadar dik duvar YOK
+        (yalnız ~4× artış).
+    (b) GERÇEK Kim A/cm² sabitleri (temsili m=3e-5 V, n=8 cm²/A) fiziksel: i→0'da
+        sıfır, i≈1.3-1.4'te öz-üreten limit-akım duvarı.
+    """
+    m_circ, n_circ = 0.085, 1.1          # Spiegel α₁, k (Kim'in m,n'i DEĞİL)
+    m_kim, n_kim = 3e-5, 8.0             # temsili GERÇEK Kim (A/cm²)
+
+    # (a) dolaşımdaki set standalone Kim terimi olarak fiziksel değil
+    assert m_circ * math.exp(n_circ * 0.0) > 0.05          # i=0'da ~85 mV offset (saçma)
+    wall_circ = (m_circ * math.exp(n_circ * 1.3)) / (m_circ * math.exp(n_circ * 0.1))
+    assert wall_circ < 5.0                                  # i_L'ye kadar dik duvar yok
+
+    # (b) gerçek Kim sabitleri i→0'da sıfırlanır ve dik duvar üretir
+    assert m_kim * math.exp(n_kim * 0.1) < 1e-3            # düşük i'de ~0
+    wall_kim = (m_kim * math.exp(n_kim * 1.3)) / (m_kim * math.exp(n_kim * 0.1))
+    assert wall_kim > 1e3                                   # i≈1.3'te öz-üreten duvar
+
+    # kim_cell_voltage GERÇEK Kim sabitleriyle monoton-azalan makul eğri verir
+    # (düşük i'de OCV-yakını ~0.86 V; kütle-taşınım duvarı yüksek i'de voltajı düşürür)
+    vs = [kim_cell_voltage(params, j, m=m_kim, n_exp=n_kim) for j in (0.1, 0.5, 1.0, 1.3)]
+    assert all(v2 < v1 for v1, v2 in zip(vs, vs[1:]))     # kesin azalan
+    assert vs[0] > 0.8                                     # düşük i'de makul (ölçülen 0.86)

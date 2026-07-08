@@ -27,13 +27,16 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   Sze ψ_bi−2kT/q düzeltmesi Richardson limitinde 4e-5.
 
 ### Doğrulama (validation/CATALOG.md)
-- Layer-0 kataloğu: rank 0-14 TAMAM — orijinal rank-12 hedefi (Kim/Barbir
-  parametrik PEMFC V(i)) dahil (yalnız Sod bilinçli kapsam-dışı);
-  129 PASS + 5 strict-xfail (devsim'li lokal ölçüm; CI devsim'siz skip'ler).
-  Xfail'lerin 4'ü belgelenmiş kaynak-tutarsızlığı (Springer λ(0.3),
-  O'Hayre D-çelişkisi, Hu A²-kayması, Pierret ε_r), 5.'si dolaşımdaki
-  Kim m·exp(n·i) sabit-aktarımı (0.085, 1.1) — aynı i_L fiziğiyle 5.3×
-  tutarsız, kaynak-sayfa teyidi açık kalem.
+- Layer-0 kataloğu: rank 0-14 TAMAM — orijinal rank-12 hedefi (parametrik
+  PEMFC V(i)) dahil (yalnız Sod bilinçli kapsam-dışı);
+  145 PASS + 4 strict-xfail (devsim'li lokal ölçüm; CI devsim'siz skip'ler).
+  Xfail'lerin 4'ü de belgelenmiş kaynak-tutarsızlığı (Springer λ(0.3),
+  O'Hayre D-çelişkisi, Hu A²-kayması, Pierret ε_r).
+- **Rank-12 ATIF DÜZELTMESİ + PROVENANS ÇÖZÜMÜ (2026-07-09, kaynak-araştırması):**
+  pemfc0d parametre seti (i0=10^-6.912, α=0.5, R=0.19, i_L=1.4) Kim/Barbir değil
+  **Spiegel (2008)/FuelCellStore**. Dolaşımdaki (0.085, 1.1) Kim'in m,n'i DEĞİL —
+  Spiegel'in α₁/k'sidir (ayrı i_L ile). Eski strict-xfail → geçen provenans testi
+  (gerçek Kim A/cm² sabitleri m≈3e-5 V, n≈8; DOI 10.1149/1.2050072).
 - Çapraz-oracle: DEVSIM 2.10 (opsiyonel `[oracle]` extra); ayrıca **SUNDIALS
   CVODE cvRoberts** basılı tablosu Robertson stiff yeteneğinin çapraz-kod pini
   (transient yeteneği kaynaktan doğrulanmış tolerans setiyle).
