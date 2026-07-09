@@ -70,6 +70,19 @@ def test_sofc_and_losses():
         m.fuel_cell_losses(j_a_cm2=3.0)             # j > j_L dürüst hata
 
 
+def test_pemfc_polarization():
+    r = m.pemfc_polarization(points=12)
+    assert len(r["j_a_cm2"]) == 12 == len(r["v_cell"])
+    assert all(v1 > v2 for v1, v2 in zip(r["v_cell"], r["v_cell"][1:]))  # j ↑ ⇒ V ↓
+    assert 0.7 < r["v_cell"][0] < 1.05                 # ilk j≈0.11 A/cm²'de makul (~0.85)
+    assert r["v_cell"][-1] < r["v_cell"][0]            # i_L'ye doğru düşüş
+    assert set(r["loss_breakdown_at_mid"]) >= {"v", "eta_act", "eta_ohmic", "eta_conc"}
+    with pytest.raises(ValueError):
+        m.pemfc_polarization(j_max_a_cm2=1.4)          # j_max >= i_L dürüst hata
+    with pytest.raises(ValueError):
+        m.pemfc_polarization(j_max_a_cm2=-1.0)
+
+
 def test_formula_catalog_carries_honesty_tiers():
     cat = m.formula_catalog()
     assert len(cat) >= 15

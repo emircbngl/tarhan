@@ -52,7 +52,8 @@ def about() -> dict:
             "cyclic_voltammetry": "tam CV; psi=None reversible, sayı verilirse Butler-Volmer",
             "nicholson_delta_ep": "ΔEp·n [mV] — Nicholson çalışma eğrisi noktası",
             "sofc_polarization": "1D SOFC j-V eğrisi + kayıp ayrıştırması",
-            "fuel_cell_losses": "PEMFC kayıp merdiveni (Tafel/ohmik/konsantrasyon)",
+            "pemfc_polarization": "0D PEMFC V(i) eğrisi + kayıp ayrıştırması (Spiegel seti)",
+            "fuel_cell_losses": "PEMFC kayıp merdiveni tek-noktada (Tafel/ohmik/konsantrasyon)",
             "formula_catalog": "fizik formülleri + dürüstlük katmanları",
         },
         "units_note": "Aksi yazılmadıkça: cm-tabanlı yarıiletken birimleri; V; A/cm².",
@@ -150,6 +151,33 @@ def sofc_polarization(j_max_a_cm2: float = 1.2, points: int = 25) -> dict:
             "loss_breakdown_at_mid": {"v": v_mid, **losses}}
 
 
+def pemfc_polarization(j_max_a_cm2: float = 1.35, points: int = 25) -> dict:
+    """0D PEMFC V(i) polarizasyon eğrisi + kayıp ayrıştırması (rank-12).
+
+    Parametre seti: Spiegel (2008)/FuelCellStore (E_r=1.229 V, i0=10^-6.912 A/cm²,
+    α=0.5, R=0.19 Ω·cm², i_L=1.4 A/cm²); merdiven standart ders-kitabı biçimi,
+    oracle-doğrulamalı terimlerle. j_max < i_L olmalı."""
+    from tarhan.models.pemfc0d import (
+        Pemfc0DParams,
+        cell_voltage,
+        polarization_curve,
+    )
+
+    _require(j_max_a_cm2=j_max_a_cm2)
+    if not (2 <= int(points) <= 200):
+        raise ValueError("points 2-200 aralığında olmalı")
+    p = Pemfc0DParams(e_r=1.229, j0=10.0 ** -6.912, alpha=0.5, n_e=2.0,
+                      r_i=0.19, j_l=1.4, T=298.15)
+    if not (j_max_a_cm2 < p.j_l):
+        raise ValueError(f"j_max < i_L={p.j_l} A/cm² olmalı (konsantrasyon limiti)")
+    grid = [j_max_a_cm2 * (k + 1) / points for k in range(int(points))]
+    curve = polarization_curve(p, grid)
+    v_mid, losses = cell_voltage(p, min(0.5, j_max_a_cm2 / 2))
+    return {"j_a_cm2": [c[0] for c in curve], "v_cell": [c[1] for c in curve],
+            "loss_breakdown_at_mid": {"v": v_mid, **losses},
+            "params": "Spiegel(2008)/FuelCellStore"}
+
+
 def fuel_cell_losses(j_a_cm2: float = 0.5, j0_a_cm2: float = 1e-6,
                      alpha: float = 0.5, n: float = 2.0, t_kelvin: float = 353.15,
                      asr_ohm_cm2: float = 0.15, j_l_a_cm2: float = 2.26,
@@ -179,7 +207,8 @@ def formula_catalog() -> list[dict]:
 
 
 _TOOLS = (about, diode_iv, diode_band_diagram, cyclic_voltammetry,
-          nicholson_delta_ep, sofc_polarization, fuel_cell_losses, formula_catalog)
+          nicholson_delta_ep, sofc_polarization, pemfc_polarization,
+          fuel_cell_losses, formula_catalog)
 
 
 def build_server():

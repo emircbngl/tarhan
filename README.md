@@ -21,10 +21,10 @@ tarhan demo --case diode    # flagship drift-diffusion diode: I-V + band diagram
 pytest                      # run the Layer-0 validation catalog
 ```
 
-Optional extras: `tarhan[mcp]` — MCP server (`tarhan-mcp`) exposing 8 guarded
+Optional extras: `tarhan[mcp]` — MCP server (`tarhan-mcp`) exposing 9 guarded
 tools (diode I-V/band diagram, cyclic voltammetry incl. Butler-Volmer, Nicholson
-working curve, SOFC polarization, fuel-cell loss ladder, honesty-tier formula
-catalog) so AI agents can drive the engine; `tarhan[oracle]` — DEVSIM
+working curve, SOFC polarization, PEMFC V(i) polarization, fuel-cell loss ladder,
+honesty-tier formula catalog) so AI agents can drive the engine; `tarhan[oracle]` — DEVSIM
 cross-validation tests. Known-good pins: `pip install tarhan -c constraints.txt`.
 
 ## The honesty model

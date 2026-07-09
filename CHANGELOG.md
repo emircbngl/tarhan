@@ -44,9 +44,9 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 ### Araçlar
 - `tarhan demo` (Cottrell) + `tarhan demo --case diode` — öz-denetimli,
   headless PNG; CI'da her push'ta koşar.
-- `tarhan-mcp` — FastMCP sunucusu (opsiyonel `[mcp]` extra): 8 araç
-  (diyot I-V/band, CV, Nicholson, SOFC, kayıp merdiveni, formül kataloğu),
-  girdi-korumalı, çıktı-desimatlı.
+- `tarhan-mcp` — FastMCP sunucusu (opsiyonel `[mcp]` extra): 9 araç
+  (diyot I-V/band, CV, Nicholson, SOFC eğrisi, PEMFC V(i) eğrisi, kayıp
+  merdiveni, formül kataloğu), girdi-korumalı, çıktı-desimatlı.
 
 ### Yetenek doğrulamaları (katalog ötesi)
 - Robertson stiff kinetiği (`layer0/numerics/test_robertson_stiff.py`, 10 test):
