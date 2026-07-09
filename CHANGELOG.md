@@ -19,9 +19,11 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   öncelikli, f64 truth-path, sessiz degrade yasak; gelecek transient
   elektrokimya/EIS için primitif).
 - Modeller (Layer-3): 1D SOFC hücre gerilimi (O'Hayre §6.2 birebir);
-  0D PEMFC polarizasyon eğrisi (`models/pemfc0d`, Kim-1995/Barbir seti —
+  0D PEMFC polarizasyon eğrisi (`models/pemfc0d`, Spiegel/FuelCellStore seti —
   oracle-doğrulamalı kayıp-merdiveni MONTAJI, yeni formül yok; Kim
-  m·exp(n·i) biçimi parametre-zorunlu);
+  m·exp(n·i) biçimi parametre-zorunlu); transient kronoamperometri
+  (`models/chronoamp1d` — method-of-lines difüzyon + BDF, transient
+  primitifinin ilk domain uygulaması; Cottrell'e uzamsal O(h²));
   **1D pn-diyot Gummel/Scharfetter-Gummel drift-diffusion** (SRH'li) —
   V_bi µV-düzeyi, ideality 1.000-1.002, DEVSIM'le 1e-3-altı mutabakat,
   Sze ψ_bi−2kT/q düzeltmesi Richardson limitinde 4e-5.
@@ -53,6 +55,10 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   korunum makine-hassasiyeti (16 dekad), 3 bağımsız yöntem ~1e-9, SUNDIALS
   çapraz-kod pin; dürüst bulgu — SUNDIALS basılı tablosu gevşek-tol demo'su,
   t≥4e9'da kendi değerleri ~%1–33 kayar (yüksek-hassasiyet Radau ile teyitli).
+- Transient kronoamperometri (`layer0/electrochem/test_chronoamp_transient.py`,
+  5 test): transient/BDF primitifinin ilk domain uygulaması — yüzey akısı Cottrell
+  analitiğine uzamsal **O(h²)** (ölçülen 2.000), profil erf'e ≤1e-4, implicit
+  avantaj (BDF adımı explicit CFL'in ≥100× altında). rank-0'ın implicit yolu.
 - pn1d MMS uzamsal-mertebe (`layer0/semiconductor/test_pn1d_mms_order.py`, 5 test):
   (a) izole `_poisson_newton` ve `_continuity_solve` operatörleri ikisi de temiz
   **O(h²)** (6 grid, 2.000); (b) TAM-KUPLAJLI (ψ,n,p) sistem coupled-Newton'la
