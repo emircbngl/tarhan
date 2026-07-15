@@ -31,9 +31,18 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 ### Doğrulama (validation/CATALOG.md)
 - Layer-0 kataloğu: rank 0-14 TAMAM — orijinal rank-12 hedefi (parametrik
   PEMFC V(i)) dahil (yalnız Sod bilinçli kapsam-dışı);
-  145 PASS + 4 strict-xfail (devsim'li lokal ölçüm; CI devsim'siz skip'ler).
-  Xfail'lerin 4'ü de belgelenmiş kaynak-tutarsızlığı (Springer λ(0.3),
-  O'Hayre D-çelişkisi, Hu A²-kayması, Pierret ε_r).
+  151 PASS + 4 strict-xfail (devsim'li lokal ölçüm; CI devsim'siz skip'ler).
+- **Xfail'ler İKİ AYRI TÜRDÜR** (dil 2026-07-15 bağımsız review'da düzeltildi —
+  eskiden dördü birden "belgelenmiş kaynak-tutarsızlığı" sayılıyordu, bu abartıydı):
+    * **Kanıtlanmış kaynak hatası (2):** kitabın kendi basılı girdileri basılı
+      cevabını üretmiyor, aritmetikle gösterildi — O'Hayre Örn. 5.1 (D=0.1-vs-0.2),
+      Hu Örn. 4-2 (A² yerine 1e-8).
+    * **Teyit edilmemiş provenans (2):** katalog aktarımımız ile korelasyon
+      uyuşmuyor, ama hangisinin yanlış olduğu basılı kaynaktan HENÜZ teyit
+      edilmedi — Springer λ(0.3), Pierret ε_r. Bunlar "kaynak yanlış" diye
+      OKUNMAMALIDIR. Emsal: rank-12'nin (0.085, 1.1) sabitleri de kaynak hatası
+      sanılıyordu; birincil-kaynak kontrolü hatanın BİZDE olduğunu gösterdi
+      (Spiegel'in α₁/k'si). Kalan ikisi için aynı araştırma açık kalem.
 - **Rank-12 ATIF DÜZELTMESİ + PROVENANS ÇÖZÜMÜ (2026-07-09, kaynak-araştırması):**
   pemfc0d parametre seti (i0=10^-6.912, α=0.5, R=0.19, i_L=1.4) Kim/Barbir değil
   **Spiegel (2008)/FuelCellStore**. Dolaşımdaki (0.085, 1.1) Kim'in m,n'i DEĞİL —
@@ -61,17 +70,27 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
   avantaj (BDF adımı explicit CFL'in ≥100× altında). rank-0'ın implicit yolu.
 - pn1d MMS uzamsal-mertebe (`layer0/semiconductor/test_pn1d_mms_order.py`, 5 test):
   (a) izole `_poisson_newton` ve `_continuity_solve` operatörleri ikisi de temiz
-  **O(h²)** (6 grid, 2.000); (b) TAM-KUPLAJLI (ψ,n,p) sistem coupled-Newton'la
-  (scipy.optimize.root, makine-hassasiyetine) MMS'te yine **O(h²)** (2.000) —
-  kuplajlı rezidüel motorun `bernoulli` SG kernel'i + Laplacian'ı + akı işaretleriyle
-  kurulur ve motorun Gummel çözümünde ‖F‖~1e-14 olduğu KANITLI. Faz-1 "temiz mertebe"
-  açık kalemini KAPATIR (Gummel gürültü tabanı bir dış-iterasyon artefaktıydı;
-  makine-hassasiyetli çözümlerle atlatıldı). Mimari: rezidüel bizim, Newton scipy'a
-  delege (transient/BDF ile aynı çizgi).
+  **O(h²)** (6 grid, 2.000) — bunlar ÜRETİM fonksiyonlarını doğrudan çağırır;
+  (b) motorun AYRIKLAŞTIRMASI, (ψ,n,p) kuplajlı ve makine-hassasiyetli çözüldüğünde
+  (coupled-Newton = scipy.optimize.root) yine **O(h²)** (2.000).
+  **Kapsam (2026-07-15 review'da dürüstçe daraltıldı):** (b)'deki kuplajlı rezidüel
+  bir TEST KURGUSUDUR — `solve_bias`'ta kuplajlı çözüm yolu YOKTUR (Gummel koşar) ve
+  kaynak-enjeksiyonunun motorda karşılığı yoktur. Rezidüelin motorun denge çözümünde
+  ‖F‖~1e-14 vermesi konvansiyon eşleşmesine GÜÇLÜ KANIT ama kimlik ispatı değildir
+  (tek durum). Yani ölçülen: ayrıklaştırmanın mertebesi; ÖLÇÜLMEYEN: üretimdeki
+  Gummel solve'un mertebesi (gürültü tabanı orada durmaya devam eder).
+  Mimari: rezidüel bizim, Newton scipy'a delege (transient/BDF ile aynı çizgi).
 
 ### Bilinen açık kalemler
-- DD çözücüsünün uzamsal mertebesi (operatör-başına + tam-kuplajlı) MMS ile
-  O(h²) doğrulandı (yukarı) — mertebe sorusu kapandı. KALAN yalnız üretim-sınıfı
-  coupled-Newton MOTOR MODU (gerçek-cihaz continuation/robustluğu) ayrı bir özellik.
+- **AYRIKLAŞTIRMA mertebesi** MMS ile O(h²) doğrulandı (izole operatörler üretim
+  fonksiyonlarında; kuplajlı sistem test-içi rezidüelde). **ÜRETİMDEKİ Gummel
+  solve'un mertebesi hâlâ ölçülmedi** — `solve_bias`'ta kuplajlı çözüm yolu yok ve
+  J-öz-yakınsaması ~1e-4-bağıl Gummel gürültü tabanına çarpıyor. Bunu kapatmak
+  gerçek bir coupled-Newton MOTOR MODU ister (2026-07-15 review'da netleşti).
+- **İki xfail'in provenansı teyit edilmemiş** (Springer λ(0.3), Pierret ε_r):
+  hatanın kaynakta mı bizim katalog aktarımımızda mı olduğu bilinmiyor. Kim
+  emsalindeki gibi birincil-kaynak araştırması gerekiyor.
+- `test_rank10_sg_flux.py`'deki %1 asimptot sınırı türetilmemiş gevşek bir sanity
+  bound (güvenli ama basılı-sayıya/ölçülmüş-mertebeye bağlı değil).
 - GUI yok (karar gereği v0.2'de, kernel-oracle-yeşili sonrası).
 - LICENSE/CITATION yasal isim: yayın öncesi TODO(owner).

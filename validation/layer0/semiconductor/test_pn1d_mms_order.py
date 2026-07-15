@@ -20,15 +20,28 @@ SONUÇ (ölçülen, 6 grid 20→640): her iki operatör de TEMİZ **2. mertebe**
 2.000; hata her h-yarılanmasında çeyreğe iner). SG akı şeması ve nonlineer Poisson
 ayrıklaştırması O(h²).
 
-TAM KUPLAJLI mertebe de ölçüldü (2026-07-09): (ψ,n,p) primitif DD rezidüeli motorun
-paylaşılan SG kernel'i (`bernoulli`) + `_poisson_newton` Laplacian'ı + `solve_bias` akı
-işaretleriyle kurulur ve **coupled-Newton** (scipy.optimize.root, makine-hassasiyetine)
-ile MMS'te çözülür → yine temiz O(h²), son oran 2.000. Rezidüelin motor ayrıklaştırmasının
-TA KENDİSİ olduğu KANITLI: gerçek Gummel çözümünde ‖F‖~1e-14 (aşağıdaki cross-check).
-Kuplaj, operatör-mertebesini bozmuyor; Gummel gürültü tabanı tamamen atlatıldı (root
-kuplajlı rezidüeli ~1e-13'e indirir). Mimari: rezidüel bizim, Newton çözümü scipy'a delege
-(transient/BDF ile aynı çizgi). KALAN: yalnız üretim-sınıfı coupled-Newton MOTOR MODU
-(gerçek-cihaz continuation/robustluğu) ayrı bir özellik — mertebe sorusu KAPANDI.
+KUPLAJLI mertebe (2026-07-09) — KAPSAMI DÜRÜSTÇE SINIRLI (söylem 2026-07-15 triad
+review'unda düzeltildi; eski hâli fazla iddialıydı):
+
+  NE ÖLÇÜLÜYOR: (ψ,n,p) primitif DD rezidüeli motorun paylaşılan parçalarıyla
+  (`bernoulli` SG kernel'i + `_poisson_newton`'ın Laplacian stencil'i + `solve_bias`'ın
+  akı işaretleri) TEST-İÇİNDE kurulur, manufactured kaynaklar eklenir ve coupled-Newton
+  (scipy.optimize.root, makine-hassasiyetine) ile çözülür → temiz O(h²), son oran 2.000.
+  Yani: motorun AYRIKLAŞTIRMASI, kuplajlı ve makine-hassasiyetli çözüldüğünde O(h²).
+
+  NE ÖLÇÜLMÜYOR: motorun kendi kuplajlı SOLVE'u — çünkü `solve_bias`'ta kuplajlı çözüm
+  yolu YOKTUR (Gummel sırası koşar). Buradaki `_coupled_residual` bir TEST KURGUSUDUR;
+  kaynak-enjeksiyon yolunun (`sn`/`sp`) motorda karşılığı yoktur.
+
+  KANIT GÜCÜ: aşağıdaki cross-check rezidüeli motorun gerçek Gummel çözümünde
+  değerlendirir (‖F‖~1e-14) — bu, işaret/ölçek konvansiyonlarının eşleştiğine dair
+  GÜÇLÜ KANIT ama KİMLİK İSPATI DEĞİL: tek bir durumda (denge, V=0, kaynak=0) yapılır;
+  iki farklı fonksiyon bir noktada uyuşabilir.
+
+  Gummel gürültü tabanı bu yolda atlatılır (root rezidüeli ~1e-13'e indirir) — ama bu,
+  üretimdeki Gummel'in tabanını kaldırmaz. Mimari: rezidüel bizim, Newton çözümü scipy'a
+  delege (transient/BDF ile aynı çizgi). Üretim-sınıfı coupled-Newton MOTOR MODU ayrı ve
+  açık bir özelliktir.
 """
 import numpy as np
 import pytest
@@ -180,10 +193,13 @@ def _coupled_residual(u, x, mun, mup, ndop_int, sn_int, sp_int, bc):
     return np.concatenate([f_psi, f_n, f_p])
 
 
-def test_coupled_residual_matches_engine_discretization():
-    """KANIT: yukarıdaki kuplajlı rezidüel = motorun ayrıklaştırması. Gerçek diyodun
-    Gummel çözümünde (S=0, R=0) ‖F‖ makine-sıfırı olmalı — yoksa test bir
-    reimplementasyonu ölçerdi, motoru değil."""
+def test_coupled_residual_consistent_with_engine_at_equilibrium():
+    """Kuplajlı rezidüel motorun DENGE çözümünde makine-sıfırı vermeli (S=0, R=0).
+
+    KAPSAM (dürüst): bu, işaret/ölçek konvansiyonlarının motorunkiyle eşleştiğine dair
+    GÜÇLÜ KANIT — ama KİMLİK İSPATI DEĞİL. Tek bir durumda (denge, V=0, kaynak=0)
+    değerlendirilir; iki farklı fonksiyon bir noktada uyuşabilir. Kaynak-enjeksiyon
+    yolu (sn/sp) burada hiç sınanmaz (motorda karşılığı yok)."""
     dev = PNDiode1D()
     st = solve_bias(dev, 0.0)                       # denge, en iyi-koşullu
     x, psi, n, p = st["x_hat"], st["psi"], st["n_hat"], st["p_hat"]
@@ -218,10 +234,14 @@ def _coupled_error(N):
                float(np.max(np.abs(pp - _cp(x)))))
 
 
-def test_coupled_newton_solve_is_second_order():
-    """TAM-KUPLAJLI çözüm (ψ,n,p birlikte, coupled-Newton=scipy.root makine-hassasiyetine)
-    MMS'te temiz O(h²) — kuplaj operatör-mertebesini bozmaz, Gummel gürültü tabanı
-    tamamen atlatılır (root kuplajlı rezidüeli ~1e-13'e indirir)."""
+def test_coupled_discretization_order_under_coupled_newton():
+    """Motorun AYRIKLAŞTIRMASI, (ψ,n,p) kuplajlı ve makine-hassasiyetli çözüldüğünde
+    (coupled-Newton = scipy.root) MMS'te temiz O(h²) — kuplaj operatör-mertebesini bozmaz.
+
+    KAPSAM (dürüst): bu, motorun kendi SOLVE'unun mertebesi DEĞİLDİR — `solve_bias`'ta
+    kuplajlı çözüm yolu yoktur (Gummel koşar) ve üretimdeki Gummel gürültü tabanı bu
+    testle kalkmaz. Ölçülen şey ayrıklaştırmanın mertebesi; test-içi bir rezidüel
+    üzerinden (bkz. modül docstring'i)."""
     grids = [20, 40, 80, 160]
     errs = [_coupled_error(N) for N in grids]
     orders = convergence_rates(errs, [_L / N for N in grids])

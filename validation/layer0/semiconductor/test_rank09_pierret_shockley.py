@@ -39,9 +39,12 @@ def test_depletion_width_printed_pins_ks_118():
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "KONVANSİYON DÜZELTMESİ: katalog aktarımı ε_r=11.7, W=0.972 μm çapasını "
-    "üretemiyor (0.967 μm verir). Çapa ε_r≈11.8'i sabitliyor; basılı Pierret'ten "
-    "kesin teyit açık kalem."))
+    "TÜR-2 xfail — TEYİT EDİLMEMİŞ PROVENANS ('kaynak hatası' diye OKUNMAMALI): "
+    "katalog aktarımı ε_r=11.7, W=0.972 μm çapasını üretemiyor (0.967 μm verir). "
+    "Çapa ε_r≈11.8'i sabitliyor — ama hangisinin (aktarımımızın mı kitabın mı) "
+    "yanlış olduğu basılı Pierret'ten TEYİT EDİLMEDİ; hata BİZDE olabilir. EMSAL: "
+    "rank-12'nin (0.085,1.1) sabitleri de kaynak hatası sanılıyordu; birincil-kaynak "
+    "araştırması mis-attribution'ın BİZİM olduğunu gösterdi."))
 def test_catalog_transcription_ks_117():
     phi = builtin_potential(NA, ND, NI, KT_Q)
     w_um = depletion_width_step_junction(11.7 * EPS0, phi, Q, NA, ND) * 1e4

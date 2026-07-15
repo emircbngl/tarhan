@@ -26,9 +26,12 @@ def test_conductivity_printed_digits(lam, T, expected, tol):
 
 
 @pytest.mark.xfail(strict=True, reason=(
-    "AÇIK KALEM: katalog-planı λ(0.3)=2.32 aktarımı kaynak-sayfa teyidi bekliyor; "
-    "korelasyon 2.7715 veriyor. Hipotez: aktarım a=0.2 içindi (λ(0.2)=2.299≈2.30). "
-    "Springer 1991 orijinalinden teyit edilince bu test düzeltilecek."))
+    "TÜR-2 xfail — TEYİT EDİLMEMİŞ PROVENANS ('kaynak hatası' diye OKUNMAMALI): "
+    "katalog-planı λ(0.3)=2.32 aktarımı kaynak-sayfa teyidi bekliyor; korelasyon "
+    "2.7715 veriyor. Hipotez: aktarım a=0.2 içindi (λ(0.2)=2.299≈2.30) — yani hata "
+    "BİZDE olabilir. EMSAL: rank-12'nin (0.085,1.1) sabitleri de kaynak hatası "
+    "sanılıyordu; birincil-kaynak araştırması mis-attribution'ın BİZİM olduğunu "
+    "gösterdi. Springer 1991 ORİJİNALİNDEN teyit edilince bu test düzeltilecek."))
 def test_lambda_a03_plan_transcription():
     assert abs(springer_lambda_sorption(0.3) - 2.32) <= 0.01
 

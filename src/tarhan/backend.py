@@ -3,13 +3,26 @@
 Karar (Product Form Decision + MLX eki, 2026-07-03): hızlandırma backend'i ŞİMDİ
 kurulmaz; bu DİKİŞ kurulur. Kurallar:
 
-- Çekirdek/numerics kodu numpy'ı doğrudan import etmez; ``xp = backend.xp()``
-  üzerinden aktif array modülüne erişir.
-- Lineer çözücüler dikişi adlandırılmış fonksiyonlardan geçer (``solve_tridiag``);
-  scipy çağrıları koda saçılmaz — backend değişiminin maliyeti modüldür, rewrite değil.
+- **Array-taşınabilir kod** numpy'ı doğrudan import etmez; ``xp = backend.xp()``
+  üzerinden aktif array modülüne erişir (flux, diffusion1d, fraccalc, convection,
+  voltammetry, models/pn1d böyledir).
+- **scipy çağrıları koda saçılmaz**: yalnız ADLANDIRILMIŞ delegasyon noktalarında
+  bulunur — backend değişiminin maliyeti modüldür, rewrite değil. Bugünkü noktalar:
+    * ``backend.solve_tridiag``              → scipy.linalg.solve_banded (lineer)
+    * ``numerics.transient.integrate_stiff`` → scipy.integrate.solve_ivp (stiff ODE)
+- **Delegasyon noktaları numpy/f64-BAĞLIDIR** (scipy öyle). Bu yüzden hem bu modül
+  hem `numerics/transient.py` numpy'ı doğrudan import eder — bu bir sızıntı DEĞİL,
+  belgelenmiş sınırdır: scipy'a delege edilen kernel'ler bir array-backend'in
+  ARDINDA duramaz, dikişin ÜSTÜNDE durur. Bir scipy-delege kernel'i besleyen kod
+  (ör. `models/chronoamp1d.py`) da aynı nedenle numpy-bağlıdır; onu xp() üzerinden
+  yazmak taşınabilirlik tiyatrosu olurdu (mlx dizisi solve_ivp'ye giremez).
 - Doğruluk yolu HER ZAMAN float64. Düşük-hassasiyetli bir backend (ör. MLX: GPU'da
   float64 yok, f64 girdiyi sessizce f32'ye çevirir — ölçüldü, 2026-07-03) yalnız
   "preview" katmanı olabilir; asla truth-path. Sessiz hassasiyet düşüşü yasaktır.
+
+(Kural metni 2026-07-15 triad review'unda DÜZELTİLDİ: eski hâli "çekirdek/numerics
+kodu numpy'ı doğrudan import etmez" diyordu, ama transient.py/chronoamp1d.py bunu
+çiğniyordu → mimari cümle yanlıştı. Sınır artık olduğu gibi yazılı.)
 """
 from __future__ import annotations
 

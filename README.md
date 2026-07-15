@@ -34,12 +34,34 @@ No formula enters this codebase without all three of:
 1. a **source citation** (book/paper, section, printed expected numbers),
 2. an **oracle check** where applicable (dimensional + symbolic + numeric verification;
    e.g. the Cottrell equation passed 3/3 before being added to `tarhan.physics`),
-3. a **Layer-0 reproduction test** pinned to published numbers or measured convergence
-   order (never an arbitrary tolerance).
+3. a **Layer-0 reproduction test** whose acceptance is pinned to published numbers, a
+   measured convergence order, or a Richardson-extrapolated limit — not to a tolerance
+   invented to make the test pass.
 
 Every function in `tarhan.physics` carries an explicit honesty tier:
-`first-principles (oracle-verified)` / `textbook (reproduced)` / `empirical fit`.
+`first-principles (oracle-verified)` / `textbook (reproduced)` / `empirical fit`
+(a few first-principles entries are labelled with their basis instead, e.g.
+`first-principles (closed form)`).
 Reduced-precision backends can never be the truth path (see `tarhan/backend.py`).
+
+**Where this discipline is not yet absolute** (kept honest rather than advertised away):
+a small number of *loose sanity bounds* remain underived — e.g.
+`validation/layer0/numerics/test_rank10_sg_flux.py` accepts 1% deviation from the
+large-Péclet drift asymptote at three fixed points. The bound is safe (the true approach
+is exponential in Péclet, so the observed margin is enormous), but it is not derived from
+a printed number or a measured order. Flagged by an independent review, 2026-07-15.
+
+**The four `strict-xfail`s are not all the same kind of thing:**
+
+| kind | count | meaning |
+|---|---|---|
+| **demonstrated source error** | 2 | the book's own printed inputs contradict its printed answer — shown arithmetically (O'Hayre Ex. 5.1 `D=0.1`-vs-`0.2`; Hu Ex. 4-2 substituting `1e-8` for `A²`) |
+| **unresolved provenance** | 2 | our catalog transcription and the correlation disagree, and we have **not** yet confirmed which side is wrong from the printed source (Springer `λ(0.3)`; Pierret `ε_r`) |
+
+The second kind must not be read as "the source is wrong". Precedent: the rank-12
+`(0.085, 1.1)` constants were carried as a suspected source error until a primary-source
+check showed the mis-attribution was **ours** (they are Spiegel's α₁/k, not Kim's m,n).
+The same may be true of the remaining two.
 
 ## Layer-0 validation catalog (15/15 — COMPLETE, incl. the original rank-12 parametric-PEMFC target) + flagship device solver
 

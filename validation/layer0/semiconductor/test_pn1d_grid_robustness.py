@@ -8,10 +8,12 @@ GRID-YAKINSAMA ÇALIŞMASI BULGULARI (2026-07-04, dürüst kayıt):
    ince gridde yuvarlama platosuna takılır) — bu bir DIŞ-İTERASYON artefaktı,
    ayrıklaştırma özelliği DEĞİL. TEMİZ MERTEBE MMS ile ölçüldü (2026-07-09,
    `test_pn1d_mms_order.py`): (a) izole `_poisson_newton` ve `_continuity_solve`
-   operatörleri O(h²) (2.000); (b) TAM-KUPLAJLI (ψ,n,p) sistem coupled-Newton'la
-   (scipy.root, makine-hassasiyetine) yine O(h²) (2.000) — Gummel tabanı atlatıldı.
-   Mertebe sorusu KAPANDI (kalan yalnız üretim coupled-Newton motor modu).
-   Keyfî mertebe İDDİA EDİLMEDİ; rank-4 dersinin devamı.
+   ÜRETİM operatörleri O(h²) (2.000); (b) motorun AYRIKLAŞTIRMASI kuplajlı+
+   makine-hassasiyetli çözüldüğünde de O(h²) (2.000) — ama bu TEST-İÇİ bir rezidüel
+   üzerinden; `solve_bias`'ta kuplajlı çözüm yolu YOK. **ÜRETİMDEKİ Gummel solve'un
+   mertebesi hâlâ ÖLÇÜLMEDİ** — buradaki gürültü tabanı duruyor; kapatmak gerçek bir
+   coupled-Newton motor modu ister (2026-07-15 review). Keyfî mertebe İDDİA EDİLMEDİ;
+   rank-4 dersinin devamı.
 3. Bugün dürüstçe sabitlenen: MESH-BAĞIMSIZLIK BANDI — pratik grid ailesi boyunca
    J'nin bağıl yayılımı küçük (ölçüm: graded-baseline vs uniform 10/5 nm ≤ ~6e-5).
 """
