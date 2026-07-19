@@ -55,7 +55,7 @@ a printed number or a measured order. Flagged by an independent review, 2026-07-
 
 | kind | count | meaning |
 |---|---|---|
-| **demonstrated source error** | 2 | the book's own printed inputs contradict its printed answer — shown arithmetically (O'Hayre Ex. 5.1 `D=0.1`-vs-`0.2`; Hu Ex. 4-2 substituting `1e-8` for `A²`) |
+| **contradiction within our transcription** | 2 | the transcribed printed inputs do not reproduce the transcribed printed answer — shown arithmetically (O'Hayre Ex. 5.1 `D=0.1`-vs-`0.2`; Hu Ex. 4-2 substituting `1e-8` for `A²`). **Limit:** the source files are *not* in this repo (copyright), so the contradiction is demonstrated over *our* transcription — a clean checkout cannot re-verify that the book prints those values |
 | **unresolved provenance** | 2 | our catalog transcription and the correlation disagree, and we have **not** yet confirmed which side is wrong from the printed source (Springer `λ(0.3)`; Pierret `ε_r`) |
 
 The second kind must not be read as "the source is wrong". Precedent: the rank-12

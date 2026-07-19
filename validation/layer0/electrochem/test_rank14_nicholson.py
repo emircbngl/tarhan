@@ -1,7 +1,9 @@
 """Rank 14 — Nicholson (1965) ΔE_p·n – ψ çalışma tablosu: quasi-reversible CV.
 
 KAYNAK (birincil, birebir transkripsiyon): Nicholson, Anal. Chem. 37, 1351 (1965),
-Tablo I — açık PDF (sources/nicholson/nicholson1965.pdf) pdftotext + görsel kontrol.
+Tablo I — açık PDF pdftotext + görsel kontrol. KAYNAK DOSYASI REPO'DA DEĞİLDİR
+(`~/malzeme simulasyon/sources/nicholson/nicholson1965.pdf` — repo DIŞI); transkripsiyon
+temiz bir checkout'tan yeniden doğrulanamaz (2026-07-15 review notu).
 Hesap koşulları da metinden: α=0.5; başlangıç C_O*/C_R* = e^{6.5};
 (E_λ − E_{1/2})·n = 141 mV; tablo α∈(0.3,0.7)'de ψ≥0.5 için ~%5 duyarlı.
 

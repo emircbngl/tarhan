@@ -31,7 +31,7 @@ pytest suite'idir (`pytest` ile koşar, CI her push'ta işletir).
 |---|------|--------|----------|-------|------|
 | T1 | Robertson stiff kinetiği — **transient/BDF yeteneği** (`numerics/transient.py`; scipy-delege stiff entegratör, analitik Jacobian, no-silent-degrade) | Robertson 1966 / Hairer-Wanner "Solving ODEs II"; çapraz-kod: SUNDIALS CVODE cvRoberts_dns (cv_examples-5.7.0.pdf; RTOL/ATOL kaynak koddan doğrulandı) | Korunum y1+y2+y3=1; SUNDIALS basılı tablo (12 dekad) | ✅ yapısal korunum Σ(RHS)≡0 → invariant makine-hassasiyeti (16 dekad); analitik Jacobian↔FD ~1e-11; **3 bağımsız yöntem (Radau/BDF/LSODA) ~1e-9 mutabık**; SUNDIALS çapraz-kod pin: y3 tüm 12 dekad ≤4e-4, y1/y2 t≤4e8 ≤1e-3. **Dürüst bulgu:** SUNDIALS basılı tablosu gevşek-tol demo'su — t≥4e9'da kendi değerleri ~%1–33 kayar (yüksek-hassasiyet Radau ile teyitli; o rejimde gerçeğe korunum+tight-tol ile bağlanılır). Stiffness gerçekliği: RK45 [0,40]'ta BDF'ten ~740× nfev; y2 zirvesi 3.6487e-5 | `layer0/numerics/test_robertson_stiff.py` |
 | T3 | **Transient kronoamperometri** (`models/chronoamp1d`) — transient/BDF primitifinin İLK domain uygulaması: method-of-lines difüzyon + BDF | Cottrell (rank-0 explicit-FD'nin implicit yolu); yarı-sonsuz erf çözümü + Cottrell akımı i=nFAc*√(D/πt) | Akım Cottrell'e uzamsal O(h²); profil erf'e eşleşir | ✅ yüzey akısı Cottrell analitiğine temiz **O(h²)** yakınsar (ölçülen mertebe 2.000, 4 grid 100→800); profil erf'e ≤1e-4; akım t≥0.05'te ≤1e-3; **implicit avantaj:** BDF adım sayısı explicit CFL gereksiniminin (dt<dx²/2D) ≥100× altında, sabit Jacobian bir kez değerlendirilir | `layer0/electrochem/test_chronoamp_transient.py` |
-| T2 | pn1d **MMS uzamsal-mertebe** — operatör-başına + TAM-KUPLAJLI MMS (Faz-1 "temiz mertebe" açık kalemini KAPATIR) | Langtangen MMS disiplini (rank-3 ile aynı ruh); manufactured smooth alan + sürekli-operatör kaynağı; coupled-Newton = scipy.optimize.root (mimari: rezidüel bizim, Newton çözümü scipy'a delege) | Her operatör + kuplajlı sistem temiz O(h²) | ✅ (a) izole `_poisson_newton` ve `_continuity_solve` — **üretim fonksiyonları doğrudan çağrılır** — ikisi de **2.000** (6 grid 20→640), makine-hassasiyetine çözülür (Poisson-Newton tol=1e-13; SG doğrudan tridiag); (b) motorun AYRIKLAŞTIRMASI (ψ,n,p) kuplajlı+makine-hassasiyetli çözüldüğünde (coupled-Newton=root) yine **2.000** (4 grid) — kuplaj mertebeyi bozmaz. Kaynak-işareti yük-taşıyan (ters işaret yakınsamaz — regresyon bekçili). **KAPSAM (2026-07-15 review'da daraltıldı):** (b)'nin rezidüeli TEST KURGUSUDUR — `solve_bias`'ta kuplajlı çözüm yolu YOK, kaynak-enjeksiyonun motorda karşılığı YOK; denge-durumunda ‖F‖~1e-14 eşleşmesi güçlü kanıt ama KİMLİK İSPATI DEĞİL (tek durum). ÖLÇÜLEN: ayrıklaştırma mertebesi. **ÖLÇÜLMEYEN: üretimdeki Gummel solve'un mertebesi** (gürültü tabanı orada duruyor) → gerçek coupled-Newton MOTOR MODU açık kalem | `layer0/semiconductor/test_pn1d_mms_order.py` |
+| T2 | pn1d **MMS uzamsal-mertebe** — operatör-başına + TAM-KUPLAJLI MMS (Faz-1 "temiz mertebe" açık kalemini KAPATIR) | Langtangen MMS disiplini (rank-3 ile aynı ruh); manufactured smooth alan + sürekli-operatör kaynağı; coupled-Newton = scipy.optimize.root (mimari: rezidüel bizim, Newton çözümü scipy'a delege) | Her operatör + kuplajlı sistem temiz O(h²) | ✅ (a) izole `_poisson_newton` ve `_continuity_solve` — **üretim fonksiyonları doğrudan çağrılır** — ikisi de **2.000** (6 grid 20→640), makine-hassasiyetine çözülür (Poisson-Newton tol=1e-13; SG doğrudan tridiag); (b) üretim konvansiyonlarını yeniden üreten TEST-YEREL bir (ψ,n,p) ayrıklaştırma, kuplajlı+makine-hassasiyetli çözüldüğünde (coupled-Newton=root) yine **2.000** (4 grid) — kuplaj mertebeyi bozmaz. (Üretimden DOĞRUDAN paylaşılan tek parça `bernoulli`; Laplacian/diverjans/işaretler test-içinde yeniden ifade edilir — "motorun ayrıklaştırması" demek fazla güçlü olurdu, 2026-07-15 review.) Kaynak-işareti yük-taşıyan (ters işaret yakınsamaz — regresyon bekçili). **KAPSAM (2026-07-15 review'da daraltıldı):** (b)'nin rezidüeli TEST KURGUSUDUR — `solve_bias`'ta kuplajlı çözüm yolu YOK, kaynak-enjeksiyonun motorda karşılığı YOK; denge-durumunda ‖F‖~1e-14 eşleşmesi güçlü kanıt ama KİMLİK İSPATI DEĞİL (tek durum). ÖLÇÜLEN: ayrıklaştırma mertebesi. **ÖLÇÜLMEYEN: üretimdeki Gummel solve'un mertebesi** (gürültü tabanı orada duruyor) → gerçek coupled-Newton MOTOR MODU açık kalem | `layer0/semiconductor/test_pn1d_mms_order.py` |
 
 ## Kurallar
 
@@ -40,13 +40,26 @@ pytest suite'idir (`pytest` ile koşar, CI her push'ta işletir).
   lisansı doğrulanamadı). Algoritma basılı metinden yeniden yazılır, köken loglanır.
 - **Sabitler vaka girdisidir** — Hu (ε_r=12, kT/q=0.026) vs Pierret (ε_r=11.8 — katalog aktarımı 11.7 idi, W=0.972 μm çapası 11.8'i sabitledi [rank-9 xfail]; 0.0259,
   n_i=1e10) vs Sze (n_i=9.65e9): motor hiçbirini hardcode etmez.
-- **Keyfî tolerans yok** — basılı hane sayısına, ölçülmüş yakınsama mertebesine
-  veya Richardson-ekstrapole limite bağlanır (rank-4 dersi).
+- **Tolerans politikası (2026-07-15 review'da MUTLAK İDDİA GERİ ÇEKİLDİ)** — eskiden
+  burada "Keyfî tolerans yok" yazıyordu; bu README ile çelişiyordu ve doğru değildi.
+  Gerçek politika: kabul eşiği **fiziğin izin verdiği her yerde** basılı hane sayısına,
+  ölçülmüş yakınsama mertebesine veya Richardson-ekstrapole limite bağlanır (rank-4
+  dersi). Bağlanamayan durumlar VAR ve gizlenmez:
+    * **ölçülmüş-marjlı regresyon bekçileri** — ölçülen bir değere marjla konmuş sınır
+      (ölçüm koda/docstring'e yazılır),
+    * **nitel kaynak bandı** — kaynağın kendi sözel tarifini kodlayan aralık
+      (ör. "OCV-yakınında ~1.0 V"),
+    * **türetilmemiş sanity sınırı** — ör. `test_rank10_sg_flux.py`'deki %1 asimptot
+      bandı: güvenli ama basılı-sayıya/mertebeye bağlı DEĞİL.
+  Bu üç sınıf ayrı ayrı etiketlenir; "hepsi pinlidir" denmez.
 - **Baskı kaydı** — her vakanın hangi baskıdan/transkripsiyondan geldiği yazılır;
   şüpheli aktarım `xfail(strict)` ile açık kalem yapılır (rank-1 λ(0.3) örneği).
 - **xfail İKİ AYRI TÜRDÜR — karıştırılmaz** (2026-07-15 bağımsız review düzeltmesi):
-    1. **Kanıtlanmış kaynak hatası:** kitabın basılı girdileri basılı cevabını
-       üretmiyor, aritmetikle GÖSTERİLDİ (O'Hayre D=0.1-vs-0.2; Hu A²-yerine-1e-8).
+    1. **Transkripsiyon-içi çelişki (aritmetikle gösterildi):** transkribe edilen basılı
+       girdiler transkribe edilen basılı cevabı üretmiyor (O'Hayre D=0.1-vs-0.2;
+       Hu A²-yerine-1e-8). **SINIR:** kaynak dosyaları repo'da DEĞİL (telif) → çelişki
+       bizim transkripsiyonumuz üzerinden gösterilir; "kitap kanıtlanmış yanlış" demek
+       temiz-checkout'tan doğrulanamaz (2026-07-15 review daraltması).
     2. **Teyit edilmemiş provenans:** aktarımımız ile hesap uyuşmuyor ama hangisinin
        yanlış olduğu basılı kaynaktan teyit EDİLMEDİ (Springer λ(0.3); Pierret ε_r).
        Bu "kaynak yanlış" DEMEK DEĞİLDİR. **Emsal:** rank-12'nin (0.085, 1.1)

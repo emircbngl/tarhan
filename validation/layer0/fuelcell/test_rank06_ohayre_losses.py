@@ -2,7 +2,11 @@
 
 Kaynak: O'Hayre, Cha, Colella & Prinz, "Fuel Cell Fundamentals", 3. baskı (Wiley
 2016) — kullanıcının EPUB kopyasından birebir transkripsiyon (2026-07-03; denklem
-görselleri kontakt-sayfa olarak okundu, sources/ohayre/). Dört çapa:
+görselleri kontakt-sayfa olarak okundu). KAYNAK DOSYASI REPO'DA DEĞİLDİR (telif;
+`~/malzeme simulasyon/sources/ohayre/` — repo DIŞI) ⇒ transkripsiyon temiz bir
+checkout'tan YENİDEN DOĞRULANAMAZ; aşağıdaki xfail "transkribe edilen değerler kendi
+içinde çelişkili" gösterir, "kitap kanıtlanmış yanlış" DEĞİL (2026-07-15 review).
+Dört çapa:
 
   Örnek 2.3: DMFC E⁰ = 1.229 − 0.03 = +1.199 V (E⁰ stokiyometriyle ölçeklenmez)
   Örnek 3.3: α=0.5, n=2, 298.15 K → Δη/dekad = 0.059 V; j0=1e-6→1 A/cm²: "6×60 mV=0.36 V"

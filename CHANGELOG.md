@@ -71,8 +71,11 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 - pn1d MMS uzamsal-mertebe (`layer0/semiconductor/test_pn1d_mms_order.py`, 5 test):
   (a) izole `_poisson_newton` ve `_continuity_solve` operatörleri ikisi de temiz
   **O(h²)** (6 grid, 2.000) — bunlar ÜRETİM fonksiyonlarını doğrudan çağırır;
-  (b) motorun AYRIKLAŞTIRMASI, (ψ,n,p) kuplajlı ve makine-hassasiyetli çözüldüğünde
-  (coupled-Newton = scipy.optimize.root) yine **O(h²)** (2.000).
+  (b) üretim konvansiyonlarını yeniden üreten TEST-YEREL bir (ψ,n,p) ayrıklaştırma,
+  kuplajlı ve makine-hassasiyetli çözüldüğünde (coupled-Newton = scipy.optimize.root)
+  yine **O(h²)** (2.000). Üretimden DOĞRUDAN paylaşılan tek parça `bernoulli`'dir;
+  Laplacian/diverjans/işaretler test-içinde yeniden ifade edilir → "motorun
+  ayrıklaştırması" demek fazla güçlüydü (2026-07-15 review düzeltmesi).
   **Kapsam (2026-07-15 review'da dürüstçe daraltıldı):** (b)'deki kuplajlı rezidüel
   bir TEST KURGUSUDUR — `solve_bias`'ta kuplajlı çözüm yolu YOKTUR (Gummel koşar) ve
   kaynak-enjeksiyonunun motorda karşılığı yoktur. Rezidüelin motorun denge çözümünde

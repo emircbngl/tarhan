@@ -1,7 +1,11 @@
 """Rank 5 — Hu Örnek 4-2: C-V ölçümünden doping çıkarımı (ters-problem yolu).
 
 Kaynak: Hu, Modern Semiconductor Devices, Böl. 4, s. 99-100 — açık Berkeley PDF'i
-indirilip sayfalar GÖRSEL okundu (sources/hu/hu-ch4.pdf, 2026-07-03).
+indirilip sayfalar GÖRSEL okundu (2026-07-03). KAYNAK DOSYASI REPO'DA DEĞİLDİR
+(telif; `~/malzeme simulasyon/sources/hu/hu-ch4.pdf` — repo DIŞI). Sonuç: aşağıdaki
+transkripsiyon temiz bir checkout'tan YENİDEN DOĞRULANAMAZ; xfail'in gösterdiği şey
+"transkribe edilen değerler kendi içinde çelişkili" — "kitap kanıtlanmış biçimde
+yanlış" DEĞİL (2026-07-15 review düzeltmesi).
 Eq. 4.4.2: 1/C²_dep = 2(φ_bi+V_r)/(q·N·εs·A²)  →  slope = 2/(q·N·εs·A²).
 
 Basılı girdiler: slope=2×10²³ F⁻²V⁻¹, kesişim 0.84 V, A=1 μm²; Hu sabitleri

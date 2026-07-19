@@ -8,9 +8,10 @@ GRID-YAKINSAMA ÇALIŞMASI BULGULARI (2026-07-04, dürüst kayıt):
    ince gridde yuvarlama platosuna takılır) — bu bir DIŞ-İTERASYON artefaktı,
    ayrıklaştırma özelliği DEĞİL. TEMİZ MERTEBE MMS ile ölçüldü (2026-07-09,
    `test_pn1d_mms_order.py`): (a) izole `_poisson_newton` ve `_continuity_solve`
-   ÜRETİM operatörleri O(h²) (2.000); (b) motorun AYRIKLAŞTIRMASI kuplajlı+
-   makine-hassasiyetli çözüldüğünde de O(h²) (2.000) — ama bu TEST-İÇİ bir rezidüel
-   üzerinden; `solve_bias`'ta kuplajlı çözüm yolu YOK. **ÜRETİMDEKİ Gummel solve'un
+   ÜRETİM operatörleri O(h²) (2.000); (b) üretim konvansiyonlarını yeniden üreten
+   TEST-YEREL bir ayrıklaştırma, kuplajlı+makine-hassasiyetli çözüldüğünde de O(h²)
+   (2.000) — üretimden doğrudan paylaşılan tek parça `bernoulli`; `solve_bias`'ta
+   kuplajlı çözüm yolu YOK. **ÜRETİMDEKİ Gummel solve'un
    mertebesi hâlâ ÖLÇÜLMEDİ** — buradaki gürültü tabanı duruyor; kapatmak gerçek bir
    coupled-Newton motor modu ister (2026-07-15 review). Keyfî mertebe İDDİA EDİLMEDİ;
    rank-4 dersinin devamı.

@@ -23,11 +23,14 @@ ayrıklaştırması O(h²).
 KUPLAJLI mertebe (2026-07-09) — KAPSAMI DÜRÜSTÇE SINIRLI (söylem 2026-07-15 triad
 review'unda düzeltildi; eski hâli fazla iddialıydı):
 
-  NE ÖLÇÜLÜYOR: (ψ,n,p) primitif DD rezidüeli motorun paylaşılan parçalarıyla
-  (`bernoulli` SG kernel'i + `_poisson_newton`'ın Laplacian stencil'i + `solve_bias`'ın
-  akı işaretleri) TEST-İÇİNDE kurulur, manufactured kaynaklar eklenir ve coupled-Newton
-  (scipy.optimize.root, makine-hassasiyetine) ile çözülür → temiz O(h²), son oran 2.000.
-  Yani: motorun AYRIKLAŞTIRMASI, kuplajlı ve makine-hassasiyetli çözüldüğünde O(h²).
+  NE ÖLÇÜLÜYOR: TEST-YEREL bir (ψ,n,p) DD rezidüeli — üretimden yalnız `bernoulli` SG
+  kernel'i DOĞRUDAN paylaşılır; Laplacian stencil'i, diverjans, ölçekleme ve akı
+  işaretleri üretim konvansiyonlarının TEST-İÇİNDE YENİDEN İFADESİDİR (aynı fonksiyon
+  DEĞİL). Buna manufactured kaynaklar eklenir ve coupled-Newton (scipy.optimize.root,
+  makine-hassasiyetine) ile çözülür → temiz O(h²), son oran 2.000. Yani: üretim
+  konvansiyonlarını yeniden üreten bir ayrıklaştırma, kuplajlı ve makine-hassasiyetli
+  çözüldüğünde O(h²). ("Motorun AYRIKLAŞTIRMASI" demek FAZLA GÜÇLÜ olurdu — bunu
+  2026-07-15 bağımsız review yakaladı.)
 
   NE ÖLÇÜLMÜYOR: motorun kendi kuplajlı SOLVE'u — çünkü `solve_bias`'ta kuplajlı çözüm
   yolu YOKTUR (Gummel sırası koşar). Buradaki `_coupled_residual` bir TEST KURGUSUDUR;
@@ -235,8 +238,9 @@ def _coupled_error(N):
 
 
 def test_coupled_discretization_order_under_coupled_newton():
-    """Motorun AYRIKLAŞTIRMASI, (ψ,n,p) kuplajlı ve makine-hassasiyetli çözüldüğünde
-    (coupled-Newton = scipy.root) MMS'te temiz O(h²) — kuplaj operatör-mertebesini bozmaz.
+    """Üretim konvansiyonlarını yeniden üreten TEST-YEREL (ψ,n,p) ayrıklaştırma, kuplajlı
+    ve makine-hassasiyetli çözüldüğünde (coupled-Newton = scipy.root) MMS'te temiz O(h²)
+    — kuplaj operatör-mertebesini bozmaz.
 
     KAPSAM (dürüst): bu, motorun kendi SOLVE'unun mertebesi DEĞİLDİR — `solve_bias`'ta
     kuplajlı çözüm yolu yoktur (Gummel koşar) ve üretimdeki Gummel gürültü tabanı bu
