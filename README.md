@@ -44,12 +44,36 @@ Every function in `tarhan.physics` carries an explicit honesty tier:
 `first-principles (closed form)`).
 Reduced-precision backends can never be the truth path (see `tarhan/backend.py`).
 
-**Where this discipline is not yet absolute** (kept honest rather than advertised away):
-a small number of *loose sanity bounds* remain underived — e.g.
-`validation/layer0/numerics/test_rank10_sg_flux.py` accepts 1% deviation from the
-large-Péclet drift asymptote at three fixed points. The bound is safe (the true approach
-is exponential in Péclet, so the observed margin is enormous), but it is not derived from
-a printed number or a measured order. Flagged by an independent review, 2026-07-15.
+**Where this discipline is not yet absolute** (kept honest rather than advertised away).
+An independent review (2026-07-15) refuted an earlier "never an arbitrary tolerance"
+claim. This section then said "a small number of loose sanity bounds remain underived —
+e.g. `test_rank10_sg_flux.py`". A full audit (2026-07-19) classified **all 192**
+acceptance thresholds in the suite and showed that phrasing still understated it:
+
+| class | n | meaning |
+|---|---|---|
+| source-pinned | 32 | the bound is the last printed digit of a published number |
+| order / limit | 13 | the asserted quantity *is* a measured convergence order or a Richardson-extrapolated limit |
+| exact structural | 76 | machine-precision identity, conservation law, monotonicity, sign, domain guard — not a tolerance at all |
+| measured-margin | 52 | regression guard set with deliberate margin over a value we measured **and recorded in the code** |
+| qualitative band | 5 | the band encodes the source's own prose (e.g. "~1.0 V near OCV") |
+| **underived** | **14** | no printed number, no measured order, no recorded measurement |
+
+So 121 of 192 are pinned to printed digits, a measured order, or are exact structural
+invariants, and 52 more are a recorded measurement plus a chosen margin — but **14 are
+underived**, not one example. The complete list is in
+[`validation/CATALOG.md`](validation/CATALOG.md). Eleven are loose by 15×–1e11× over the
+quantity they guard (safe, but the number is tied to nothing). Two are thin and genuinely
+fragile: `test_rank04_semiintegral.py:43` accepts 3e-3 against a measured 2.9312e-3 (2.3%
+headroom), and `test_robertson_stiff.py:135` accepts 2e-3 against a measured 1.28e-3.
+
+**One was worse than loose — it was false, and it has been fixed.**
+`test_chronoamp_transient.py` asserted "≥100× fewer steps than the explicit CFL
+requirement", but `numerics/transient.py` reported `nsteps` as the *output-point* count
+(`len(t_eval)` = 1), so the assertion reduced to `1 < 88.9` and measured nothing. The
+field is now split into `n_output_points` and an opt-in, genuinely-measured
+`n_accepted_steps`; the real ratio is **18.4×** (483 accepted BDF steps vs 8889 explicit
+steps), and every "≥100×" claim in the docs has been corrected.
 
 **The four `strict-xfail`s are not all the same kind of thing:**
 

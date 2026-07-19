@@ -42,15 +42,29 @@ class StiffSolution:
     method: str
     nfev: int               # sağ-taraf değerlendirme sayısı (stiffness tanığı)
     njev: int               # Jacobian değerlendirme sayısı
-    nsteps: int             # kabul edilen dahili adım sayısı
+    nlu: int                # LU ayrıştırma sayısı (implicit çözücü eforu)
+    n_output_points: int    # ÇIKTI noktası sayısı (t_eval verildiyse = len(t_eval))
+    n_accepted_steps: int | None = None
+    #: Çözücünün KABUL ETTİĞİ dahili adım sayısı — yalnız ``count_steps=True`` ile
+    #: doldurulur (aksi hâlde None). DÜZELTME 2026-07-19: eski ``nsteps`` alanı
+    #: ``sol.t.shape[0]`` döndürüyordu, yani t_eval verildiğinde ÇIKTI nokta sayısı,
+    #: adım sayısı DEĞİL. Bu, chronoamp testindeki "implicit avantaj" iddiasını BOŞ
+    #: bir assertion'a çeviriyordu (1 < 88.9 daima doğru). Tam denetimde yakalandı.
 
 
 def integrate_stiff(rhs, y0, t_span, *, jac=None, t_eval=None,
-                    rtol=1e-6, atol=1e-9, method="BDF") -> StiffSolution:
+                    rtol=1e-6, atol=1e-9, method="BDF",
+                    count_steps=False) -> StiffSolution:
     """Stiff ODE sistemini ``t_span`` üzerinde entegre et (implicit, f64).
 
     ``rhs(t, y) -> dy/dt`` ve opsiyonel ``jac(t, y) -> ∂f/∂y``. Analitik Jacobian
     verilmesi stiff çözümde şiddetle önerilir (Newton adımlarını hızlandırır).
+
+    ``count_steps=True`` çözücünün KABUL ETTİĞİ dahili adım sayısını ölçer
+    (``dense_output`` açılır, iç kırılma noktaları ``sol.sol.ts``'den okunur) ve
+    ``n_accepted_steps``'i doldurur. Maliyeti vardır (interpolant saklanır), bu
+    yüzden opt-in'dir. "Implicit avantaj" gibi ADIM-SAYISI iddiaları bu bayrak
+    olmadan ÖLÇÜLEMEZ — ``n_output_points`` adım sayısı değildir.
 
     Geçerlilik/dürüstlük:
     - ``method`` STIFF_METHODS içinde olmalı (explicit RK truth-path değil).
@@ -64,13 +78,18 @@ def integrate_stiff(rhs, y0, t_span, *, jac=None, t_eval=None,
         )
     y0 = _np.asarray(y0, dtype=float)
     sol = _solve_ivp(rhs, t_span, y0, method=method, jac=jac, t_eval=t_eval,
-                     rtol=rtol, atol=atol, dense_output=False)
+                     rtol=rtol, atol=atol, dense_output=bool(count_steps))
     if not sol.success:
         raise RuntimeError(f"stiff entegrasyon başarısız (method={method}): {sol.message}")
+    accepted = None
+    if count_steps and getattr(sol, "sol", None) is not None:
+        accepted = len(sol.sol.ts) - 1        # iç kırılma noktaları → kabul edilen adım
     return StiffSolution(
         t=sol.t, y=sol.y, method=method,
         nfev=int(sol.nfev), njev=int(getattr(sol, "njev", 0) or 0),
-        nsteps=sol.t.shape[0],
+        nlu=int(getattr(sol, "nlu", 0) or 0),
+        n_output_points=int(sol.t.shape[0]),
+        n_accepted_steps=accepted,
     )
 
 

@@ -55,11 +55,21 @@ def test_current_matches_cottrell_across_times():
 
 
 def test_implicit_advantage_over_explicit_cfl():
-    """BDF implicit adım sayısı, explicit'in CFL kısıtıyla gereksineceğinin çok altında
-    — stiff MOL sisteminde implicit yöntemin varlık nedeni."""
+    """BDF'in KABUL ETTİĞİ adım sayısı, explicit'in CFL kısıtıyla gereksineceğinin
+    altında — stiff MOL sisteminde implicit yöntemin varlık nedeni.
+
+    DÜZELTME (2026-07-19 tam tolerans denetimi): bu test eskiden `r["nsteps"]`
+    kullanıyordu, ama o alan ÇIKTI noktası sayısıydı (t_eval tek nokta) → assertion
+    `1 < 88.9`'a indirgeniyordu, yani BOŞTU ve "≥100×" iddiası hiçbir şey ölçmüyordu.
+    Artık gerçek kabul-edilen adım sayısı ölçülüyor (count_steps=True) ve eşik
+    ÖLÇÜLEN orana bağlı: 8889/483 = 18.4×.
+    """
     r = chronoamperogram(D, C_BULK, [1.0], n_x=400, rtol=1e-9, atol=1e-11)
+    steps = r["n_accepted_steps"]
+    assert steps is not None and steps > 1          # gerçekten adım sayısı (çıktı değil)
     explicit_steps_needed = 1.0 / r["cfl_explicit_dt"]      # t_max / (dx²/2D)
-    assert r["nsteps"] < explicit_steps_needed / 100         # ≥100× daha az adım
+    ratio = explicit_steps_needed / steps
+    assert ratio > 10.0, f"ölçülen oran {ratio:.1f}× (referans ölçüm 18.4×)"
     assert r["njev"] <= 3                                     # sabit Jacobian ~1 kez
 
 

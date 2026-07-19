@@ -67,7 +67,10 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 - Transient kronoamperometri (`layer0/electrochem/test_chronoamp_transient.py`,
   5 test): transient/BDF primitifinin ilk domain uygulaması — yüzey akısı Cottrell
   analitiğine uzamsal **O(h²)** (ölçülen 2.000), profil erf'e ≤1e-4, implicit
-  avantaj (BDF adımı explicit CFL'in ≥100× altında). rank-0'ın implicit yolu.
+  avantaj: BDF'in kabul ettiği 483 adım vs explicit CFL'in gerektirdiği 8889 →
+  **ölçülen 18.4×** (2026-07-19 düzeltmesi: eskiden "≥100×" yazıyordu ve testi boştu
+  — `nsteps` çıktı-noktası sayısıydı; `count_steps=True` ile gerçek adım ölçülür).
+  rank-0'ın implicit yolu.
 - pn1d MMS uzamsal-mertebe (`layer0/semiconductor/test_pn1d_mms_order.py`, 5 test):
   (a) izole `_poisson_newton` ve `_continuity_solve` operatörleri ikisi de temiz
   **O(h²)** (6 grid, 2.000) — bunlar ÜRETİM fonksiyonlarını doğrudan çağırır;

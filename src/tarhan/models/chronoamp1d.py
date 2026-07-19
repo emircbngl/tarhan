@@ -76,8 +76,10 @@ def chronoamperogram(D: float, c_bulk: float, t_eval, *, n: float = 1.0,
         return jc
 
     u0 = _np.full(m, c_bulk)
+    # count_steps=True: "implicit avantaj" iddiası GERÇEK kabul-edilen adım sayısını
+    # gerektirir (2026-07-19 denetimi: eski nsteps çıktı-noktası sayısıydı → iddia boştu).
     sol = integrate_stiff(rhs, u0, (0.0, t_max), jac=jac, t_eval=t_eval,
-                          rtol=rtol, atol=atol, method="BDF")
+                          rtol=rtol, atol=atol, method="BDF", count_steps=True)
 
     current = []
     for k in range(len(t_eval)):
@@ -91,7 +93,10 @@ def chronoamperogram(D: float, c_bulk: float, t_eval, *, n: float = 1.0,
         "x": x,
         "profile_final": _np.concatenate([[0.0], sol.y[:, -1], [c_bulk]]),
         "domain_len": L,
-        "nsteps": sol.nsteps,
+        "n_accepted_steps": sol.n_accepted_steps,   # GERÇEK kabul edilen BDF adımı
+        "n_output_points": sol.n_output_points,     # = len(t_eval); adım sayısı DEĞİL
+        "nfev": sol.nfev,
         "njev": sol.njev,
+        "nlu": sol.nlu,
         "cfl_explicit_dt": dx ** 2 / (2.0 * D),      # explicit'in ihtiyaç duyacağı dt
     }
