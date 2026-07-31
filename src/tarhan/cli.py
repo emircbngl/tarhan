@@ -113,7 +113,27 @@ def _demo_diode(save: str | None, show: bool) -> int:
     return 0 if ok else 1
 
 
+def _force_utf8_stdio() -> None:
+    """Windows konsolunda Türkçe çıktıyı kurtar (ilk CI koşusu yakaladı).
+
+    Windows'ta stdout varsayılan olarak yerel kod sayfasını kullanır (ör. cp1252)
+    ve çıktımızdaki 'ğ/ş/ı/ü/ö/ç' karakterlerini yazamayıp UnicodeEncodeError ile
+    ÇÖKER — sayısal hiçbir sorun olmadığı hâlde demo çıkış kodu 1 döner.
+    Bu CI'a özgü DEĞİL: aynı çökme gerçek Windows kullanıcısında da olur, o yüzden
+    çözüm ortam değişkeni değil, akışın kendisi.
+
+    reconfigure() Python 3.7+ TextIOWrapper'da vardır; stdout bir boruya ya da
+    TextIOWrapper olmayan bir nesneye yönlendirilmişse sessizce atlanır.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_stdio()
     parser = argparse.ArgumentParser(
         prog="tarhan",
         description="TARHAN — physics-first materials simulator (pre-alpha)")
