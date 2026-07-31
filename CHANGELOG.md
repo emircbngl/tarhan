@@ -99,4 +99,7 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 - `test_rank10_sg_flux.py`'deki %1 asimptot sınırı türetilmemiş gevşek bir sanity
   bound (güvenli ama basılı-sayıya/ölçülmüş-mertebeye bağlı değil).
 - GUI yok (karar gereği v0.2'de, kernel-oracle-yeşili sonrası).
-- LICENSE/CITATION yasal isim: yayın öncesi TODO(owner).
+- ~~LICENSE/CITATION yasal isim~~ → **kapandı (2026-07-31)**: CITATION.cff ve
+  pyproject.toml `authors` alanları dolduruldu, ikisi senkron.
+- Zenodo concept-DOI hâlâ alınmadı: ilk halka açık sürümde alınıp CITATION.cff'e
+  eklenecek (concept-DOI, version-DOI değil).

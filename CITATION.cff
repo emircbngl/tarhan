@@ -1,14 +1,17 @@
-# TASLAK — ilk halka açık sürümden önce: yasal isim + Zenodo concept-DOI eklenecek
+# Yasal isim eklendi (2026-07-31). KALAN: ilk halka açık sürümde Zenodo concept-DOI
+# alınıp buraya eklenecek.
 # (kuruluş ilkesi #16: atıflanabilirlik altyapıdır; concept-DOI vs version-DOI ayrımına dikkat)
 cff-version: 1.2.0
 title: "TARHAN"
 message: "If you use this software, please cite it using the metadata from this file."
 type: software
 authors:
-  - alias: emircbngl # TODO(owner): given-names / family-names
+  - given-names: Emir
+    family-names: Çobanoğlu
+    alias: emircbngl
 version: 0.1.0.dev0   # pyproject.toml [project].version ile SENKRON kalmalı (triad review BLOCKER, 2026-07-15)
 repository-code: "https://github.com/emircbngl/tarhan"
 abstract: >-
   Physics-first, extensible materials simulator: galvanic cells, hydrogen fuel
   cells and semiconductor devices on one charged-species transport kernel.
-license: BSD-3-Clause
+license: AGPL-3.0-or-later

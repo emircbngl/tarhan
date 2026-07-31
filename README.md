@@ -118,4 +118,13 @@ compared against published numbers.
 
 ## License
 
-BSD-3-Clause (see `LICENSE`).
+**AGPL-3.0-or-later** (see `LICENSE`). Copyright © 2026 Emir Çobanoğlu.
+
+You may use, study, modify and redistribute TARHAN freely. If you distribute a
+modified version — **or make one available to users over a network** (AGPL §13,
+which covers the `tarhan-mcp` server) — you must offer those users the
+corresponding source under the same license.
+
+If those terms do not fit your use (embedding TARHAN in a closed-source product,
+or running a modified version as a service without publishing it), a separate
+commercial license is available — open an issue or contact the author.
