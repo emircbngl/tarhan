@@ -25,7 +25,11 @@ dependencies = ["numpy>=1.26", "scipy>=1.11", "matplotlib>=3.8"]
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 oracle = ["devsim>=2.9"]   # çapraz-oracle testleri (opsiyonel)
-mcp = ["mcp>=1.1"]         # AI-ajan köprüsü (tarhan-mcp)
+# AI-ajan köprüsü (tarhan-mcp). ÜST SINIR BİLİNÇLİ: mcp 2.0.0 (2026-07-28)
+# paketi yeniden yapılandırdı ve `mcp.server.fastmcp` yolunu kaldırdı; ilk CI
+# koşusu bunu yakaladı (7/7 iş kırmızı). TARHAN 1.x'e karşı doğrulandı, 2.x'e
+# karşı DOĞRULANMADI — sınır ancak 2.x yolu test edilip geçtikten sonra açılmalı.
+mcp = ["mcp>=1.1,<2"]
 # gelecek (v0.2+ kapısında): gui = ["pyside6>=6.6"], mlx = [...], fast = [...]
 
 [project.scripts]
