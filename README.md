@@ -1,5 +1,8 @@
 # TARHAN
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21761218.svg)](https://doi.org/10.5281/zenodo.21761218)
+[![License: AGPL v3+](https://img.shields.io/badge/License-AGPL%20v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 **Physics-first, extensible materials simulator** — galvanic cells, hydrogen fuel
 cells and semiconductor devices, built on a single charged-species transport kernel
 (finite-volume + Scharfetter–Gummel + damped Newton).

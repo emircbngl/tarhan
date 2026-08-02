@@ -101,5 +101,8 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 - GUI yok (karar gereği v0.2'de, kernel-oracle-yeşili sonrası).
 - ~~LICENSE/CITATION yasal isim~~ → **kapandı (2026-07-31)**: CITATION.cff ve
   pyproject.toml `authors` alanları dolduruldu, ikisi senkron.
-- Zenodo concept-DOI hâlâ alınmadı: ilk halka açık sürümde alınıp CITATION.cff'e
-  eklenecek (concept-DOI, version-DOI değil).
+- ~~Zenodo concept-DOI hâlâ alınmadı~~ → **kapandı (2026-08-02)**: GitHub-Zenodo
+  entegrasyonu açıldı, v0.1.0 Release'i arşivlendi. Concept-DOI
+  **10.5281/zenodo.21761218** (her zaman en son sürüme çözülür) CITATION.cff'e
+  `doi` alanı olarak, v0.1.0'ın sürüm-DOI'si 10.5281/zenodo.21761219 ise
+  `identifiers` altına yazıldı. README'de rozet var.
