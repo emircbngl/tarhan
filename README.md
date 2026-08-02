@@ -30,6 +30,22 @@ working curve, SOFC polarization, PEMFC V(i) polarization, fuel-cell loss ladder
 honesty-tier formula catalog) so AI agents can drive the engine; `tarhan[oracle]` — DEVSIM
 cross-validation tests. Known-good pins: `pip install tarhan -c constraints.txt`.
 
+## Web service
+
+[**tarhan-web**](https://github.com/emircbngl/tarhan-web) is a separate
+repository: a FastAPI service and React front end that call this solver and
+archive the runs. It adds no physics — it pins this package at `v0.1.0` and
+displays what comes back.
+
+It is worth a look for one design decision. The cross-validation figures below
+were measured at a single operating point, and a web form lets anyone leave that
+point. So every response the service returns carries a flag saying whether *that
+run* sits inside the validated regime, together with the measured numbers and a
+link to the test file. The agreement is a measurement, not a property that
+travels with the code.
+
+Not deployed yet — it runs locally today.
+
 ## The honesty model
 
 No formula enters this codebase without all three of:
