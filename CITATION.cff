@@ -9,7 +9,9 @@ authors:
   - given-names: Emir
     family-names: Çobanoğlu
     alias: emircbngl
-version: 0.1.0.dev0   # pyproject.toml [project].version ile SENKRON kalmalı (triad review BLOCKER, 2026-07-15)
+version: 0.1.0   # pyproject.toml, src/tarhan/__init__.py ve CHANGELOG.md ile SENKRON kalmalı
+                 # (triad review BLOCKER, 2026-07-15 — 2026-08-02'de dörtlü olduğu görüldü: CHANGELOG da sürüm taşıyor)
+date-released: 2026-08-02
 repository-code: "https://github.com/emircbngl/tarhan"
 abstract: >-
   Physics-first, extensible materials simulator: galvanic cells, hydrogen fuel

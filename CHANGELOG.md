@@ -2,7 +2,7 @@
 
 Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 
-## [0.1.0.dev0] — yayımlanmadı
+## [0.1.0] — 2026-08-02
 
 İlk halka-açık-adayı iskelet: "kurulunca çalışır" + doğrulama-önce disiplini.
 

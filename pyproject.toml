@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tarhan"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Physics-first materials simulator: galvanic cells, fuel cells and semiconductor devices on one charged-species transport kernel"
 readme = "README.md"
 requires-python = ">=3.11"
