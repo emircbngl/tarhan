@@ -28,4 +28,4 @@ identifiers:
 abstract: >-
   Physics-first, extensible materials simulator: galvanic cells, hydrogen fuel
   cells and semiconductor devices on one charged-species transport kernel.
-license: AGPL-3.0-or-later
+license: Apache-2.0

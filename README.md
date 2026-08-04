@@ -1,7 +1,7 @@
 # TARHAN
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21761218.svg)](https://doi.org/10.5281/zenodo.21761218)
-[![License: AGPL v3+](https://img.shields.io/badge/License-AGPL%20v3%2B-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
 **Physics-first, extensible materials simulator** — galvanic cells, hydrogen fuel
 cells and semiconductor devices, built on a single charged-species transport kernel
@@ -137,13 +137,15 @@ compared against published numbers.
 
 ## License
 
-**AGPL-3.0-or-later** (see `LICENSE`). Copyright © 2026 Emir Çobanoğlu.
+**Apache-2.0** (see `LICENSE` and `NOTICE`). Copyright © 2026 Muhammet Emir Çobanoğlu.
 
-You may use, study, modify and redistribute TARHAN freely. If you distribute a
-modified version — **or make one available to users over a network** (AGPL §13,
-which covers the `tarhan-mcp` server) — you must offer those users the
-corresponding source under the same license.
+You may use, study, modify and redistribute TARHAN freely, including inside
+closed-source and commercial work. Keep the copyright notice, the licence text
+and the `NOTICE` file with the code, and state any changes you made.
 
-If those terms do not fit your use (embedding TARHAN in a closed-source product,
-or running a modified version as a service without publishing it), a separate
-commercial license is available — open an issue or contact the author.
+Apache-2.0 also grants an explicit patent licence from every contributor, which
+matters for numerical methods that may later be patentable.
+
+> Relicensed from AGPL-3.0-or-later on 2026-08-05, to prioritise academic reuse
+> and citation. Versions published before that date remain available under
+> AGPL-3.0-or-later; that grant cannot be withdrawn retroactively.

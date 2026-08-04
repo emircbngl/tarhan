@@ -31,35 +31,13 @@ If you find that an existing claim in this repository is wrong, that is a valuab
 contribution on its own. Open an issue with the evidence. It has happened before
 and the corrections are recorded rather than quietly fixed.
 
-## 2. The Contributor License Agreement
+## 2. Licensing of contributions
 
-TARHAN is released under **AGPL-3.0-or-later**, and a **separate commercial
-license** is offered to users who cannot accept AGPL terms.
+TARHAN is Apache-2.0. Under Apache-2.0 section 5, anything you deliberately
+submit for inclusion is licensed under those same terms, so there is no CLA to
+sign and no separate grant to collect. You keep the copyright to your work.
 
-Keeping that possible requires a license grant from contributors. Without it, one
-merged pull request would permanently end the project's ability to offer
-commercial terms, because every past contributor would have to be tracked down
-and asked.
-
-So: before your first pull request is merged, please read [`CLA.md`](CLA.md) and
-include this line in the pull request description:
-
-```
-I have read the CLA.md document and I hereby sign the CLA.
-```
-
-**You keep the copyright to your work.** The CLA is a license grant, not an
-assignment. It is one page and says so explicitly.
-
-You sign once; it covers all your later contributions here. If you are
-contributing on behalf of an employer, say so in the pull request.
-
-There is deliberately no bot enforcing this — the two established CLA bots are
-both unmaintained, and the GitHub Action variant requires write permissions on
-pull requests from forks, which is not a trade this project is willing to make for
-its current contribution volume. The pull request template carries the checkbox
-instead.
-
+If you are contributing on behalf of an employer, say so in the pull request.
 ## Practical steps
 
 ```bash

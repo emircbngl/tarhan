@@ -19,12 +19,3 @@ Paste the relevant test output, or say why no numeric claim is involved.
 - [ ] If a physics formula is added or changed, it carries an honesty tier and a
       source citation
 
-## Contributor License Agreement
-
-First-time contributors: TARHAN is dual-licensed (AGPL-3.0-or-later + commercial),
-which requires a license grant from contributors. See [`CLA.md`](../CLA.md) — it
-is one page and you keep the copyright to your work.
-
-- [ ] I have read the CLA.md document and I hereby sign the CLA.
-
-<!-- Already signed on a previous pull request? Just say so and tick the box. -->
