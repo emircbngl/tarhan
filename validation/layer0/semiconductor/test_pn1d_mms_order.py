@@ -227,7 +227,20 @@ def _coupled_error(N):
     bc = ((_cpsi(x[0]), _cpsi(x[-1])), (_cn(x[0]), _cn(x[-1])), (_cp(x[0]), _cp(x[-1])))
     args = (x, _CMUN, _CMUP, ndop, sn, sp, bc)
     u0 = np.concatenate([_cpsi(x[1:-1]), _cn(x[1:-1]), _cp(x[1:-1])])
-    sol = root(_coupled_residual, u0, args=args, method="hybr", tol=1e-13)
+    # tol: scipy varsayılanı BİLEREK bırakıldı. Eskiden tol=1e-13 istenirdi;
+    # bu, hybr'ın sonlu-fark Jacobian'ıyla taşıyabileceğinden sıkı bir xtol.
+    # N=80'de çözücüyü 242 yerine 731 fonksiyon değerlendirmesine sokup
+    # duraksama bölgesine itiyordu ve ubuntu+py3.13 koşucusunda "iteration is
+    # not making good progress" ile düşüyordu (macOS/Windows/py3.11 geçerken).
+    # Ölçüldü: tol 1e-13 / 1e-12 / 1e-10 / varsayılan ve method="lm" — HEPSİ
+    # order[-1] = 2.0001 veriyor. Mertebe çözücü toleransına duyarsız, çünkü
+    # rezidüel ölçülen ayrıklaştırma hatasının çok altında kalıyor:
+    #   N=20   disc=6.78e-04  res=2.93e-13  (2.3e9 kat)
+    #   N=160  disc=1.06e-05  res=2.28e-11  (4.6e5 kat)
+    # MMS mertebe çalışmasının geçerlilik koşulu (çözücü hatası << ayrıklaştırma
+    # hatası) 5+ mertebe payla sağlanıyor. maxfev payı kalan gürültüye karşı.
+    sol = root(_coupled_residual, u0, args=args, method="hybr",
+               options={"maxfev": 50000})
     assert sol.success and float(np.max(np.abs(sol.fun))) < 1e-8   # kuplajlı Newton yakınsadı
     ps = np.concatenate([[_cpsi(x[0])], sol.x[:ni], [_cpsi(x[-1])]])
     nn = np.concatenate([[_cn(x[0])], sol.x[ni:2 * ni], [_cn(x[-1])]])
