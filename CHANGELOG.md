@@ -4,6 +4,12 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 
 ## [Unreleased] — 0.1.1.dev0
 
+### Added
+- `numerics/mesh.py`: box-method (finite-volume / Voronoi) edge geometry for 2D
+  triangular meshes — edge length, Voronoi facet, and the positivity guard.
+  Geometry only; mesh *generation* stays out of scope (read a `.msh`). First
+  step of `docs/DESIGN-2D.md`, with hand-derived Layer-0 tests.
+
 ### Fixed
 - `diode_iv` now counts its bias points *before* building the sweep, so a
   request that exceeds the 60-point cap is rejected without materialising the

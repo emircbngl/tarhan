@@ -59,10 +59,39 @@ permittivity on the edge.
 Why not finite differences on a structured grid? It is easier for one week and
 wrong forever: real device geometry (a MOS corner, a junction that is not
 axis-aligned) is what 2D is *for*, and a structured grid cannot represent it.
-The Delaunay/Voronoi pair is also what makes the M-matrix property survive —
-**provided the mesh is Delaunay and non-obtuse**. That is a real constraint, not
-a footnote: an obtuse triangle produces a negative `A_e` and destroys positivity.
-The mesh layer must check it and refuse.
+
+The Delaunay/Voronoi pair is also what keeps the edge weights non-negative, which
+is what the M-matrix property (and therefore guaranteed positivity of carrier
+densities) rests on. The interior-edge weight is
+
+    A_e / L_e = (cot α + cot β) / 2
+
+with α, β the angles *opposite* the shared edge in its two triangles.
+
+**The rule differs between interior and boundary edges, and both earlier
+statements of it in this document were wrong.**
+
+*Interior edge* — two opposite angles, so the terms compensate. Delaunay's
+empty-circumcircle test is equivalent to α + β ≤ π, which gives
+cot α + cot β ≥ 0. An obtuse triangle is fine here: when its obtuse angle faces
+the interior edge, the neighbour's larger cotangent absorbs it. Measured over
+20 000 random two-triangle configurations, of the 19 294 satisfying Delaunay,
+**none** produced a negative interior weight, and **18 022 of those contained an
+obtuse triangle**.
+
+*Boundary edge* — one opposite angle, nothing to compensate with. The weight is
+(L_e / 2)·cot γ, negative exactly when γ > 90°, i.e. when the triangle's
+circumcentre falls outside the domain across that edge. **This is where
+non-obtuseness genuinely matters, and only here.**
+
+The first draft of this section said the whole mesh had to be non-obtuse (too
+strict: it rejects valid interior configurations). The first correction said
+obtuseness never mattered (too loose: it misses the boundary). The distinction
+surfaced when a hand-computed Layer-0 test failed on a boundary edge — which is
+the argument for hand-derived expectations rather than golden files.
+
+`numerics/mesh.py` implements this and reports which of the two causes it hit,
+because the remedies differ: flip the edge, versus refine the boundary.
 
 ## 3. Proposed module layout
 
