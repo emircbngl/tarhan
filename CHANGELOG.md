@@ -4,6 +4,15 @@ Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 
 ## [Unreleased] — 0.1.1.dev0
 
+### Fixed
+- `diode_iv` now counts its bias points *before* building the sweep, so a
+  request that exceeds the 60-point cap is rejected without materialising the
+  list first. Measured on the rejected path: 112 MB / 1198 ms at `v_step=1e-7`
+  before, 1 KB / 0.1 ms after. These are MCP tools, so the step size is
+  caller-supplied and only checked for positive+finite.
+- Two remaining Turkish error strings in `diode_iv` are now English, matching
+  the rest of the tool surface an agent reads.
+
 `main`, yayımlanmış `v0.1.0` artifact'ından ileridedir. Bu bölümdeki kod
 henüz citable release değildir; yayınlandığında sürüm, tag, GitHub Release ve
 Zenodo version DOI birlikte güncellenecektir.

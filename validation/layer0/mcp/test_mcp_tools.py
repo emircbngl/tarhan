@@ -6,6 +6,8 @@ DÜRÜST SystemExit verir (sessiz degrade yok).
 """
 import math
 
+import time
+
 import pytest
 
 from tarhan import mcp_server as m
@@ -30,6 +32,21 @@ def test_diode_iv_never_steps_past_requested_stop():
     r = m.diode_iv(v_start=0.50, v_stop=0.60, v_step=0.06)
     assert r["volts"] == pytest.approx([0.50, 0.56, 0.60])
     assert max(r["volts"]) <= 0.60
+
+
+def test_diode_iv_rejects_tiny_step_without_allocating_it():
+    """The point-count guard must run BEFORE the sweep list is built.
+
+    These tools are driven by agents, so v_step is attacker-shaped input: it is
+    only checked for positive+finite. Materialising the list first means a
+    request that is going to be rejected anyway allocates it — at v_step=1e-9
+    that is ~6e8 points. Rejection must be cheap, so this asserts on time, not
+    just on the exception.
+    """
+    start = time.perf_counter()
+    with pytest.raises(ValueError, match="too many"):
+        m.diode_iv(v_start=0.0, v_stop=0.35, v_step=1e-7)
+    assert time.perf_counter() - start < 0.5
 
 
 @pytest.mark.parametrize("kw", [

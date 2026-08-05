@@ -84,18 +84,27 @@ def diode_iv(na_cm3: float = 1e16, nd_cm3: float = 1e16,
     if not (0.2 <= len_p_um <= 500 and 0.2 <= len_n_um <= 500):
         raise ValueError("side lengths must be in the 0.2-500 um range")
     if not (0.0 <= v_start <= v_stop <= 0.6):
-        raise ValueError("0 <= v_start <= v_stop <= 0.6 V (yüksek-enjeksiyon sınırı)")
+        raise ValueError("0 <= v_start <= v_stop <= 0.6 V (high-injection limit)")
     # Never manufacture a point beyond the caller's validated upper bias.
     # ``round(span / step)`` did exactly that for non-dividing steps: e.g.
     # 0.50..0.60 in 0.06-V steps yielded 0.62 V, outside this API's
     # high-injection guard.  Keep regular step points below v_stop, then add
     # the requested endpoint once when it is not already represented.
+    #
+    # COUNT before materialising. This is an MCP tool, so the step comes from a
+    # caller we do not control, and _require only rejects non-positive values —
+    # v_step=1e-9 spans ~6e8 points. Building the list first means a request
+    # that is about to be rejected allocates it anyway (measured: 20.8 MB and
+    # 4.2 s at v_step=1e-5, ~4.8 GB at 1e-9), so the guard runs first.
     n_full_steps = int(math.floor((v_stop - v_start) / v_step))
+    needs_endpoint = not math.isclose(v_start + n_full_steps * v_step, v_stop,
+                                      rel_tol=0.0, abs_tol=1e-12)
+    n_pts = n_full_steps + 1 + (1 if needs_endpoint else 0)
+    if n_pts > 60:
+        raise ValueError(f"{n_pts} bias points is too many (<=60)")
     volts = [v_start + k * v_step for k in range(n_full_steps + 1)]
-    if not math.isclose(volts[-1], v_stop, rel_tol=0.0, abs_tol=1e-12):
+    if needs_endpoint:
         volts.append(v_stop)
-    if len(volts) > 60:
-        raise ValueError(f"{len(volts)} bias noktası çok (<=60)")
 
     dev = PNDiode1D(Na=na_cm3, Nd=nd_cm3, len_p=len_p_um * 1e-4,
                     len_n=len_n_um * 1e-4, tau_n=tau_n_s, tau_p=tau_p_s)
