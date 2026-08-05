@@ -60,6 +60,26 @@ is why the expected numbers in the Layer-0 suite are hand-derived.
 This module therefore validates the quantity that actually breaks the solve — a
 negative computed facet — and reports which of the two causes it hit, because
 the remedies differ: flip the edge, versus refine the boundary.
+
+Evidence
+--------
+``docs/geom_check.py`` re-derives every number above. It checks the Delaunay
+criterion against the circumcircle *determinant* rather than the angle sum,
+because ``α + β ≤ π ⟺ cot α + cot β ≥ 0`` is an identity — testing one with the
+other would prove nothing. It also confirms that the cotangent expression really
+is the distance between the two circumcentres (worst error 8.9e-16 over 192 478
+well-shaped Delaunay samples).
+
+That check excludes slivers below ~15°, and the exclusion is itself the reason
+this module computes cotangents from ``atan2`` and never constructs a
+circumcentre: as a triangle degenerates the circumcentres run off to infinity
+and their difference loses all precision, while the cotangent form stays well
+conditioned. A real mesh has slivers near a junction, which is exactly where a
+wrong weight would matter most.
+
+Still unproven here: that non-negative edge weights give an M-matrix, and that an
+M-matrix gives positive carrier densities. Both are standard, both are assumed,
+and neither can be checked until ``assemble.py`` exists to produce a matrix.
 """
 from __future__ import annotations
 
