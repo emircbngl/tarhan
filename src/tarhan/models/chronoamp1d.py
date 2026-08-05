@@ -47,12 +47,12 @@ def chronoamperogram(D: float, c_bulk: float, t_eval, *, n: float = 1.0,
     çözücü tanıkları (nsteps/njev — implicit avantajın kanıtı).
     """
     if not (D > 0.0 and c_bulk > 0.0):
-        raise ValueError(f"D={D}, c_bulk={c_bulk}: pozitif olmalı")
+        raise ValueError(f"D={D}, c_bulk={c_bulk}: must be positive")
     t_eval = [float(t) for t in t_eval]
     if not t_eval or min(t_eval) <= 0.0:
-        raise ValueError("t_eval boş olamaz ve t>0 olmalı (Cottrell t→0'da ıraksar)")
+        raise ValueError("t_eval must be non-empty with t>0 (Cottrell diverges as t->0)")
     if int(n_x) < 8:
-        raise ValueError("n_x >= 8 olmalı")
+        raise ValueError("n_x must be >= 8")
     t_max = max(t_eval)
     L = n_diff_lengths * _np.sqrt(D * t_max)
     x = _np.linspace(0.0, L, int(n_x) + 1)

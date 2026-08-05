@@ -169,4 +169,4 @@ def half_peak_theta(thetas, J, j_p: float):
         if J[m - 1] <= target <= J[m]:
             w = (target - float(J[m - 1])) / (float(J[m]) - float(J[m - 1]))
             return float(thetas[m - 1]) + w * (float(thetas[m]) - float(thetas[m - 1]))
-    raise RuntimeError("yarı-tepe kesişimi bulunamadı (tarama aralığını kontrol et)")
+    raise RuntimeError("half-peak crossing not found (check the sweep range)")

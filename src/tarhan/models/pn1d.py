@@ -63,13 +63,13 @@ class PNDiode1D:
                      "len_p", "len_n", "h0"):
             v = getattr(self, name)
             if not (v > 0.0 and math.isfinite(v)):
-                raise ValueError(f"{name}={v}: pozitif ve sonlu olmalı")
+                raise ValueError(f"{name}={v}: must be positive and finite")
         if (self.tau_n is None) != (self.tau_p is None):
             raise ValueError("tau_n ve tau_p birlikte verilmeli (ya ikisi ya hiçbiri)")
         for name in ("tau_n", "tau_p"):
             v = getattr(self, name)
             if v is not None and not (v > 0.0 and math.isfinite(v)):
-                raise ValueError(f"{name}={v}: pozitif ve sonlu olmalı")
+                raise ValueError(f"{name}={v}: must be positive and finite")
         self.C0 = max(self.Na, self.Nd)
         self.delta = self.ni / self.C0
         self.L_D = math.sqrt(self.eps_s * self.ut / (self.q * self.C0))

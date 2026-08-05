@@ -259,7 +259,7 @@ def ideal_fill_factor(voc_norm: float) -> float:
     green_fill_factor'ın doğruluk-hakemi — çift-yol deseni, rank-13).
     """
     if voc_norm <= 1.0:
-        raise ValueError(f"voc_norm={voc_norm}: normalize V_oc > 1 olmalı")
+        raise ValueError(f"voc_norm={voc_norm}: normalised V_oc must be > 1")
     from scipy.optimize import minimize_scalar
 
     em1 = math.expm1(voc_norm)

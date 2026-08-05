@@ -27,7 +27,7 @@ SOURCE_URL = "https://github.com/emircbngl/tarhan"
 def _require(**kw):
     for name, val in kw.items():
         if not (isinstance(val, (int, float)) and math.isfinite(val) and val > 0):
-            raise ValueError(f"{name}={val!r}: pozitif ve sonlu sayı olmalı")
+            raise ValueError(f"{name}={val!r}: must be a positive, finite number")
 
 
 def _decimate(xs, ys):
@@ -39,7 +39,7 @@ def _decimate(xs, ys):
 # ---------------------------------------------------------------- araçlar --- #
 
 def about() -> dict:
-    """ÖNCE BENİ OKU: TARHAN'ın kapsamı, dürüstlük modeli ve araç rehberi."""
+    """READ ME FIRST: TARHAN's scope, honesty model and tool guide."""
     return {
         "name": "TARHAN", "version": __version__,
         "scope": ("Fizik-öncelikli malzeme simülatörü (pre-alpha): 1D pn-diyot "
@@ -74,15 +74,15 @@ def diode_iv(na_cm3: float = 1e16, nd_cm3: float = 1e16,
              v_start: float = 0.05, v_stop: float = 0.40, v_step: float = 0.05,
              tau_n_s: float | None = None, tau_p_s: float | None = None,
              len_p_um: float = 3.0, len_n_um: float = 3.0) -> dict:
-    """1D pn-diyot I-V (Gummel/SG; DEVSIM-doğrulanmış çözücü)."""
+    """1D pn-diode I-V (Gummel/Scharfetter-Gummel; DEVSIM-validated solver)."""
     from tarhan.models.pn1d import PNDiode1D, iv_sweep
 
     _require(na_cm3=na_cm3, nd_cm3=nd_cm3, v_step=v_step,
              len_p_um=len_p_um, len_n_um=len_n_um)
     if not (na_cm3 <= 1e20 and nd_cm3 <= 1e20):
-        raise ValueError("doping <= 1e20 cm^-3 olmalı (Boltzmann geçerliliği)")
+        raise ValueError("doping must be <= 1e20 cm^-3 (Boltzmann validity)")
     if not (0.2 <= len_p_um <= 500 and 0.2 <= len_n_um <= 500):
-        raise ValueError("taraf uzunlukları 0.2-500 um aralığında olmalı")
+        raise ValueError("side lengths must be in the 0.2-500 um range")
     if not (0.0 <= v_start <= v_stop <= 0.6):
         raise ValueError("0 <= v_start <= v_stop <= 0.6 V (yüksek-enjeksiyon sınırı)")
     n_pts = int(round((v_stop - v_start) / v_step)) + 1
@@ -99,7 +99,7 @@ def diode_iv(na_cm3: float = 1e16, nd_cm3: float = 1e16,
 
 def diode_band_diagram(bias_v: float = 0.3, na_cm3: float = 1e16,
                        nd_cm3: float = 1e16, e_gap_ev: float = 1.12) -> dict:
-    """Verilen bias'ta band diyagramı (Ec/Ev/EFn/EFp [eV], x [um])."""
+    """Band diagram at a given bias (Ec/Ev/EFn/EFp [eV], x [um])."""
     from tarhan.models.pn1d import PNDiode1D, band_diagram, solve_bias
 
     _require(na_cm3=na_cm3, nd_cm3=nd_cm3, e_gap_ev=e_gap_ev)
@@ -117,15 +117,15 @@ def diode_band_diagram(bias_v: float = 0.3, na_cm3: float = 1e16,
 
 def cyclic_voltammetry(psi: float | None = None, alpha: float = 0.5,
                        d_theta: float = 2e-3) -> dict:
-    """Tam CV (boyutsuz). psi=None ⇒ reversible (Nernst); sayı ⇒ Butler-Volmer.
+    """Full CV (dimensionless). psi=None => reversible (Nernst); a number => Butler-Volmer.
 
-    Dönen theta = F(E−E½)/RT; current boyutsuz (Randles-Ševčík normalize)."""
+    Returns theta = F(E-E_half)/RT; current is dimensionless (Randles-Sevcik normalised)."""
     from tarhan.numerics.voltammetry import cv_sweep
 
     if not (0.25 <= alpha <= 0.75):
-        raise ValueError("alpha 0.25-0.75 aralığında olmalı")
+        raise ValueError("alpha must be in the 0.25-0.75 range")
     if not (5e-4 <= d_theta <= 1e-2):
-        raise ValueError("d_theta 5e-4..1e-2 aralığında olmalı")
+        raise ValueError("d_theta must be in the 5e-4..1e-2 range")
     K0 = None
     if psi is not None:
         _require(psi=psi)
@@ -137,22 +137,22 @@ def cyclic_voltammetry(psi: float | None = None, alpha: float = 0.5,
 
 
 def nicholson_delta_ep(psi: float) -> dict:
-    """Nicholson çalışma-eğrisi noktası: ΔEp·n [mV, 25°C] (1965 Tablo I ±2 mV doğrulamalı)."""
+    """Nicholson working-curve point: dEp*n [mV, 25 C] (validated to +/-2 mV against 1965 Table I)."""
     from tarhan.numerics.voltammetry import nicholson_peak_separation
 
     _require(psi=psi)
     if not (0.05 <= psi <= 50):
-        raise ValueError("psi 0.05-50 aralığında olmalı (çalışma eğrisi bölgesi)")
+        raise ValueError("psi must be in the 0.05-50 range (working-curve region)")
     return {"psi": psi, "delta_ep_n_mv": float(nicholson_peak_separation(psi))}
 
 
 def sofc_polarization(j_max_a_cm2: float = 1.2, points: int = 25) -> dict:
-    """1D SOFC j-V eğrisi + 0.5 A/cm²'de kayıp ayrıştırması (O'Hayre §6.2 modeli)."""
+    """1D SOFC j-V curve + loss breakdown at 0.5 A/cm^2 (O'Hayre section 6.2 model)."""
     from tarhan.models.sofc1d import Sofc1DParams, cell_voltage, polarization_curve
 
     _require(j_max_a_cm2=j_max_a_cm2)
     if not (2 <= int(points) <= 200):
-        raise ValueError("points 2-200 aralığında olmalı")
+        raise ValueError("points must be in the 2-200 range")
     p = Sofc1DParams()
     grid = [j_max_a_cm2 * (k + 1) / points for k in range(int(points))]
     curve = polarization_curve(grid, p)
@@ -175,11 +175,11 @@ def pemfc_polarization(j_max_a_cm2: float = 1.35, points: int = 25) -> dict:
 
     _require(j_max_a_cm2=j_max_a_cm2)
     if not (2 <= int(points) <= 200):
-        raise ValueError("points 2-200 aralığında olmalı")
+        raise ValueError("points must be in the 2-200 range")
     p = Pemfc0DParams(e_r=1.229, j0=10.0 ** -6.912, alpha=0.5, n_e=2.0,
                       r_i=0.19, j_l=1.4, T=298.15)
     if not (j_max_a_cm2 < p.j_l):
-        raise ValueError(f"j_max < i_L={p.j_l} A/cm² olmalı (konsantrasyon limiti)")
+        raise ValueError(f"j_max must be < i_L={p.j_l} A/cm^2 (concentration limit)")
     grid = [j_max_a_cm2 * (k + 1) / points for k in range(int(points))]
     curve = polarization_curve(p, grid)
     v_mid, losses = cell_voltage(p, min(0.5, j_max_a_cm2 / 2))
@@ -192,7 +192,7 @@ def fuel_cell_losses(j_a_cm2: float = 0.5, j0_a_cm2: float = 1e-6,
                      alpha: float = 0.5, n: float = 2.0, t_kelvin: float = 353.15,
                      asr_ohm_cm2: float = 0.15, j_l_a_cm2: float = 2.26,
                      c_conc_v: float = 0.1) -> dict:
-    """PEMFC kayıp merdiveni (oracle-doğrulamalı formüllerle; O'Hayre rank-6 seti)."""
+    """PEMFC loss ladder (oracle-verified formulas; O'Hayre rank-6 set)."""
     _require(j_a_cm2=j_a_cm2, j0_a_cm2=j0_a_cm2, alpha=alpha, n=n,
              t_kelvin=t_kelvin, asr_ohm_cm2=asr_ohm_cm2, j_l_a_cm2=j_l_a_cm2,
              c_conc_v=c_conc_v)
@@ -206,7 +206,7 @@ def fuel_cell_losses(j_a_cm2: float = 0.5, j0_a_cm2: float = 1e-6,
 
 
 def formula_catalog() -> list[dict]:
-    """tarhan.physics envanteri — her formülün dürüstlük katmanıyla (ilke #4)."""
+    """Inventory of tarhan.physics — each formula with its honesty layer (principle #4)."""
     out = []
     for name, fn in inspect.getmembers(physics, inspect.isfunction):
         doc = inspect.getdoc(fn) or ""
@@ -222,12 +222,12 @@ _TOOLS = (about, diode_iv, diode_band_diagram, cyclic_voltammetry,
 
 
 def build_server():
-    """FastMCP sunucusunu kur (mcp paketi gerekli)."""
+    """Build the FastMCP server (requires the mcp package)."""
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError as exc:                      # dürüst hata — ilke #6
         raise SystemExit(
-            "TARHAN MCP sunucusu için ek bağımlılık gerekli:\n"
+            "the TARHAN MCP server needs an extra dependency:\n"
             "    pip install 'tarhan[mcp]'") from exc
     server = FastMCP(
         "tarhan",

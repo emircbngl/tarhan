@@ -1,4 +1,4 @@
-"""TARHAN CLI — sıfır-config kanıtı: ``tarhan demo``.
+"""TARHAN CLI — the zero-config proof: ``tarhan demo``.
 
 İki vaka (``--case``):
   cottrell  — Cottrell kronoamperometri reprodüksiyonu vs analitik G = 1/sqrt(πT)
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import sys
 
 from tarhan import __version__, physics
@@ -21,9 +22,9 @@ def _demo(save: str | None, show: bool) -> int:
     targets = [0.1 * k for k in range(1, 11)]
     samples, dt, dx = cottrell_fd_samples(targets)
 
-    print(f"TARHAN {__version__} — demo: Cottrell kronoamperometri (explicit FD)")
+    print(f"TARHAN {__version__} — demo: Cottrell chronoamperometry (explicit FD)")
     print(f"grid: dX={dx:.4f}, dT={dt:.2e} (lam=0.45)\n")
-    print(f"{'T':>4} | {'G_sim':>9} | {'G_analitik':>10} | {'hata %':>7}")
+    print(f"{'T':>4} | {'G_sim':>9} | {'G_analytic':>10} | {'err %':>7}")
     print("-" * 40)
     max_err = 0.0
     for t in targets:
@@ -32,7 +33,7 @@ def _demo(save: str | None, show: bool) -> int:
         max_err = max(max_err, err)
         print(f"{t:4.1f} | {samples[t]:9.5f} | {g_an:10.5f} | {err:7.4f}")
     ok = max_err < 0.05
-    print(f"\nmaks. bağıl hata: {max_err:.4f}%  (tolerans %0.05)  "
+    print(f"\nmax relative error: {max_err:.4f}%  (tolerance 0.05%)  "
           f"{'PASS' if ok else 'FAIL'}")
 
     if save or show:
@@ -44,16 +45,16 @@ def _demo(save: str | None, show: bool) -> int:
 
         tt = np.linspace(0.05, 1.0, 400)
         fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot(tt, 1.0 / np.sqrt(np.pi * tt), "-", label="analitik  G = 1/√(πT)")
+        ax.plot(tt, 1.0 / np.sqrt(np.pi * tt), "-", label="analytic  G = 1/sqrt(pi*T)")
         ax.plot(targets, [samples[t] for t in targets], "o", label="TARHAN explicit-FD")
-        ax.set_xlabel("T (boyutsuz zaman)")
-        ax.set_ylabel("G (boyutsuz akım)")
-        ax.set_title("Cottrell reprodüksiyonu — maks. hata %{:.3f}".format(max_err))
+        ax.set_xlabel("T (dimensionless time)")
+        ax.set_ylabel("G (dimensionless current)")
+        ax.set_title("Cottrell reproduction - max error {:.3f}%".format(max_err))
         ax.legend()
         fig.tight_layout()
         if save:
             fig.savefig(save, dpi=120)
-            print(f"grafik kaydedildi: {save}")
+            print(f"plot saved: {save}")
         if show:
             plt.show()
 
@@ -67,8 +68,8 @@ def _demo_diode(save: str | None, show: bool) -> int:
     volts = [0.05 * k for k in range(1, 9)]
     js, _ = iv_sweep(dev, volts)
 
-    print(f"TARHAN {__version__} — demo: 1D pn-diyot (Gummel + Scharfetter-Gummel)")
-    print(f"Na=Nd={dev.Na:.0e} cm⁻³, ni={dev.ni:.0e}, kT/q={dev.ut} V (vaka girdileri)\n")
+    print(f"TARHAN {__version__} — demo: 1D pn-diode (Gummel + Scharfetter-Gummel)")
+    print(f"Na=Nd={dev.Na:.0e} cm⁻³, ni={dev.ni:.0e}, kT/q={dev.ut} V (case inputs)\n")
     print(f"{'V [V]':>6} | {'J [A/cm²]':>12} | {'n_id':>6}")
     print("-" * 32)
     ok = True
@@ -79,7 +80,7 @@ def _demo_diode(save: str | None, show: bool) -> int:
             nid_s = f"{nid:.4f}"
             ok &= abs(nid - 1.0) < 0.02
         print(f"{v:6.2f} | {j:12.5e} | {nid_s:>6}")
-    print(f"\nideality (0.15-0.40 V) 1.00±0.02 içinde: {'PASS' if ok else 'FAIL'}")
+    print(f"\nideality (0.15-0.40 V) within 1.00+/-0.02: {'PASS' if ok else 'FAIL'}")
 
     if save or show:
         import matplotlib
@@ -94,20 +95,20 @@ def _demo_diode(save: str | None, show: bool) -> int:
         ax1.semilogy(volts, js, "o-", label="TARHAN Gummel/SG")
         vv = np.linspace(0.15, 0.40, 50)
         ax1.semilogy(vv, js[5] * np.exp((vv - volts[5]) / dev.ut), "--",
-                     label="ideal eğim (60 mV/dekad-ish)")
+                     label="ideal slope (~60 mV/decade)")
         ax1.set_xlabel("V [V]"); ax1.set_ylabel("J [A/cm²]")
-        ax1.set_title("Diyot I-V"); ax1.legend()
+        ax1.set_title("Diode I-V"); ax1.legend()
         x_um = np.asarray(bd["x_cm"]) * 1e4
         ax2.plot(x_um, bd["Ec"], label="E_c")
         ax2.plot(x_um, bd["Ev"], label="E_v")
         ax2.plot(x_um, bd["EFn"], "--", label="E_Fn")
         ax2.plot(x_um, bd["EFp"], "--", label="E_Fp")
         ax2.set_xlabel("x [µm]"); ax2.set_ylabel("E [eV]")
-        ax2.set_title("Band diyagramı @ 0.30 V"); ax2.legend()
+        ax2.set_title("Band diagram @ 0.30 V"); ax2.legend()
         fig.tight_layout()
         if save:
             fig.savefig(save, dpi=120)
-            print(f"grafik kaydedildi: {save}")
+            print(f"plot saved: {save}")
         if show:
             plt.show()
     return 0 if ok else 1
@@ -132,6 +133,26 @@ def _force_utf8_stdio() -> None:
             pass
 
 
+def _should_show(flag: bool | None) -> bool:
+    """Decide whether to open an interactive plot window.
+
+    ``plt.show()`` blocks until the window is closed. When nothing can ever
+    close it — a CI job, an ssh session, a container, a piped run — the
+    documented first command (`tarhan demo`) hangs forever, and because stdout
+    is block-buffered when piped, it hangs having printed nothing at all. So the
+    window is opt-in by context: only when stdout is a real terminal, and only
+    when a display backend is actually usable. An explicit --show/--no-show
+    always wins.
+    """
+    if flag is not None:
+        return flag
+    if not sys.stdout.isatty():
+        return False
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+        return False
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8_stdio()
     parser = argparse.ArgumentParser(
@@ -140,19 +161,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"tarhan {__version__}")
     sub = parser.add_subparsers(dest="command")
 
-    p_demo = sub.add_parser("demo", help="sıfır-config reprodüksiyon demoları")
+    p_demo = sub.add_parser("demo", help="zero-config reproduction demos")
     p_demo.add_argument("--case", choices=("cottrell", "diode"), default="cottrell",
-                        help="demo vakası (varsayılan: cottrell)")
-    p_demo.add_argument("--save", metavar="PATH", default=None, help="grafiği PNG olarak kaydet")
-    p_demo.add_argument("--no-show", action="store_true", help="pencere açma (headless/CI)")
+                        help="demo case (default: cottrell)")
+    p_demo.add_argument("--save", metavar="PATH", default=None, help="save the plot as a PNG")
+    p_demo.add_argument("--show", dest="show", action="store_true", default=None,
+                        help="open an interactive plot window (default: only when "
+                             "stdout is a terminal)")
+    p_demo.add_argument("--no-show", dest="show", action="store_false",
+                        help="never open a window (headless/CI)")
 
     args = parser.parse_args(argv)
     if args.command == "demo":
+        show = _should_show(args.show)
         if args.case == "diode":
-            return _demo_diode(save=args.save, show=not args.no_show)
-        return _demo(save=args.save, show=not args.no_show)
+            return _demo_diode(save=args.save, show=show)
+        return _demo(save=args.save, show=show)
     parser.print_help()
-    print("\nipucu: `tarhan demo` veya `tarhan demo --case diode` ile başlayın.")
+    print("\nhint: start with `tarhan demo` or `tarhan demo --case diode`.")
     return 0
 
 

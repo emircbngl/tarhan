@@ -19,8 +19,10 @@ Named after **Tarhan**, protector of forges and metalworkers in Turkic mythology
 
 ```bash
 pip install -e ".[dev]"
-tarhan demo                 # zero-config: converged Cottrell reproduction + plot
+tarhan demo                 # zero-config: converged Cottrell reproduction
 tarhan demo --case diode    # flagship drift-diffusion diode: I-V + band diagram
+tarhan demo --show          # ...and open the plot window (interactive terminals)
+tarhan demo --save iv.png   # ...or write the plot to a file (CI, servers)
 pytest                      # run the Layer-0 validation catalog
 ```
 
