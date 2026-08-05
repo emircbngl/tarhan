@@ -59,6 +59,17 @@ longer, look at the log.
 stdout is a terminal; pass `--show` to force one, `--save out.png` to write the
 figure instead. It will not block a CI job or an agent shell.
 
+## Do not add GPU here
+
+Measured on an M4: at TARHAN's 1D working size (n=2e4) MLX takes 0.631 ms
+against NumPy's 0.012 ms — about **50x slower**. Host-device transfer dominates
+completely; the arrays are far too small to amortise it, and the sparse/tridiag
+solves are latency-bound rather than throughput-bound.
+
+This is a measurement, not an opinion, and it is recorded here so the idea does
+not get re-proposed every few months. If 2D lands (see `docs/DESIGN-2D.md`) the
+question is worth re-measuring at that scale — not before.
+
 ## Scope — do not overclaim
 
 This is 0D/1D only: `pemfc0d`, `pn1d`, `sofc1d`, `chronoamp1d`, `diffusion1d`.
