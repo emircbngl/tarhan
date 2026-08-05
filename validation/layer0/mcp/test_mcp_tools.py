@@ -15,6 +15,7 @@ def test_about_manifest():
     a = m.about()
     assert a["version"] and "tools" in a
     assert len(a["tools"]) == len(m._TOOLS) - 1   # about kendini rehberde listelemez
+    assert a["license"]["spdx"] == "Apache-2.0"
 
 
 def test_diode_iv_happy_path():

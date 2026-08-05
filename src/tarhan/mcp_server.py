@@ -19,10 +19,8 @@ from tarhan import __version__, physics
 
 MAX_POINTS = 800
 
-#: AGPL-3.0 §13 — ağ üzerinden etkileşen kullanıcıya, çalışan sürümün kaynağının
-#: nerede olduğu belirgin biçimde sunulmak zorundadır. Bu sabit hem ``about()``
-#: aracında hem sunucu yönergelerinde kullanılır; TARHAN'ı DEĞİŞTİRİP servis
-#: olarak sunanların burayı KENDİ kaynak adresleriyle güncellemesi gerekir.
+#: Canonical upstream source. The value is returned by ``about()`` and shown
+#: in the server instructions so MCP clients can identify the running project.
 SOURCE_URL = "https://github.com/emircbngl/tarhan"
 
 
@@ -64,12 +62,10 @@ def about() -> dict:
         },
         "units_note": "Aksi yazılmadıkça: cm-tabanlı yarıiletken birimleri; V; A/cm².",
         "license": {
-            "spdx": "AGPL-3.0-or-later",
+            "spdx": "Apache-2.0",
             "source": SOURCE_URL,
-            "note": ("AGPL §13: bu sunucuyu DEĞİŞTİRİP ağ üzerinden sunuyorsanız, "
-                     "kullanıcılara kendi değiştirilmiş sürümünüzün kaynağını "
-                     "sunmakla yükümlüsünüz. AGPL şartları kullanımınıza uymuyorsa "
-                     "ayrı bir ticari lisans mevcut."),
+            "note": ("Apache-2.0; lisans metnini ve NOTICE dosyasını koruyarak "
+                     "kullanabilir, değiştirebilir ve yeniden dağıtabilirsiniz."),
         },
     }
 
@@ -233,17 +229,13 @@ def build_server():
         raise SystemExit(
             "TARHAN MCP sunucusu için ek bağımlılık gerekli:\n"
             "    pip install 'tarhan[mcp]'") from exc
-    # AGPL §13 bildirimi: istemci bağlandığında GÖRÜNÜR olması gerekir, bu yüzden
-    # araç çıktısına gömmek yetmez — sunucu yönergesine konur.
     server = FastMCP(
         "tarhan",
         instructions=(
             f"TARHAN {__version__} — fizik-öncelikli malzeme simülatörü (pre-alpha). "
             "Önce about() aracını çağırın: kapsam, dürüstlük modeli ve araç rehberi.\n\n"
-            f"Lisans: AGPL-3.0-or-later. Kaynak kod: {SOURCE_URL}\n"
-            "Bu yazılımı değiştirip ağ üzerinden sunuyorsanız, AGPL §13 gereği "
-            "kullanıcılarınıza değiştirilmiş sürümünüzün kaynağını sunmalısınız. "
-            "AGPL şartları uymuyorsa ayrı bir ticari lisans mevcut."
+            f"Lisans: Apache-2.0. Kaynak kod: {SOURCE_URL}\n"
+            "Yeniden dağıtımda lisans metnini ve NOTICE dosyasını koruyun."
         ),
         website_url=SOURCE_URL,
     )
