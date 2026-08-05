@@ -59,16 +59,38 @@ longer, look at the log.
 stdout is a terminal; pass `--show` to force one, `--save out.png` to write the
 figure instead. It will not block a CI job or an agent shell.
 
-## Do not add GPU here
+## GPU: no at today's scale, an open question at 2D/3D scale
 
-Measured on an M4: at TARHAN's 1D working size (n=2e4) MLX takes 0.631 ms
-against NumPy's 0.012 ms — about **50x slower**. Host-device transfer dominates
-completely; the arrays are far too small to amortise it, and the sparse/tridiag
-solves are latency-bound rather than throughput-bound.
+Measured on an M4 at TARHAN's **current** 1D working size (n=2e4): MLX takes
+0.631 ms against NumPy's 0.012 ms — about **50x slower**. Host-device transfer
+dominates completely at this size. So for the code that exists today, GPU is a
+pessimisation, and that is a measurement rather than an opinion.
 
-This is a measurement, not an opinion, and it is recorded here so the idea does
-not get re-proposed every few months. If 2D lands (see `docs/DESIGN-2D.md`) the
-question is worth re-measuring at that scale — not before.
+**This verdict is about scale, not about GPUs.** It does not carry to 2D or 3D:
+
+| | nodes |
+|---|---|
+| today, 1D | 20,000 |
+| 2D, 256x256 mesh | 65,536 |
+| 3D, 128^3 mesh | 2,097,152 |
+
+At 3D sizes the arithmetic finally dwarfs the transfer, and two parts of the
+solve behave very differently:
+
+- **Assembly** (the edge loop computing Scharfetter-Gummel fluxes) is a
+  gather/scatter over ~10^5-10^6 edges with no data dependence. That is a good
+  GPU workload and MLX can express it.
+- **The linear solve** is the dominant cost, and it is the blocker: **MLX has no
+  sparse support today** (`mx.sparse` does not exist; `mx.linalg` is dense only,
+  as of 0.31.1). A dense solve is not an option — 65k nodes dense in float64 is
+  ~34 GB. So a GPU path needs either a matrix-free iterative solver (CG/GMRES
+  with the stencil applied directly, no assembled matrix) or hand-rolled sparse
+  matvec via gather/scatter.
+
+So the honest position: **re-measure when 2D lands**, and expect the answer to
+depend on the solver choice made in `docs/DESIGN-2D.md`, not on the hardware.
+A direct sparse LU stays on the CPU; a matrix-free iterative scheme is where a
+GPU could pay.
 
 ## Scope — do not overclaim
 

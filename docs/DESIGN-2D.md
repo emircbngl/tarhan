@@ -94,10 +94,31 @@ build. Expect it to become the bottleneck around 10⁵ nodes; that is the moment
 to consider UMFPACK or an iterative scheme with an ILU preconditioner, and not
 before, because a preconditioner chosen without a profile is a guess.
 
-**Not GPU.** Measured on this machine (M4), MLX at TARHAN's 1D working size is
-~50× *slower* than NumPy — transfer overhead dominates. Sparse LU is also
-branch-heavy and latency-bound rather than throughput-bound. GPU is the wrong
-tool here until there is a measured profile that says otherwise.
+**GPU: decided by the solver choice, not yet decided.** Measured on an M4, MLX
+at TARHAN's *current* 1D size (n=2e4) is ~50x slower than NumPy — transfer
+overhead dominates. That verdict does not carry to 2D/3D, where node counts go
+from 2e4 to 6.5e4 (256^2) and 2.1e6 (128^3) and the arithmetic finally dwarfs
+the transfer.
+
+The split matters. **Assembly** — the edge loop — is a dependence-free
+gather/scatter over 10^5-10^6 edges and is a good GPU workload. **The linear
+solve** is the dominant cost and the blocker: MLX has no sparse support today
+(`mx.sparse` absent, `mx.linalg` dense-only as of 0.31.1), and dense is not an
+option (65k nodes dense in float64 is ~34 GB).
+
+So the two solver paths differ in their GPU story, and this should be weighed
+when choosing one:
+
+- **Sparse direct (SuperLU/UMFPACK)** — recommended to start. CPU-only, and
+  fine: it is branch-heavy and latency-bound, a poor GPU fit regardless.
+- **Matrix-free iterative (CG/GMRES + preconditioner)** — the path where a GPU
+  could actually pay, because the stencil apply is exactly the kind of dense
+  elementwise work MLX is good at. Also the path that scales to 3D.
+
+Recommendation unchanged for stage 1 (start sparse direct, on CPU), but do not
+write the assembly layer in a way that assumes an assembled CSR matrix is the
+only consumer — keeping a matrix-free apply possible costs nothing now and is
+what keeps the GPU option open for 3D.
 
 ## 5. Validation — the part that makes it TARHAN
 
