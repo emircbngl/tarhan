@@ -2,6 +2,23 @@
 
 Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 
+## [Unreleased] — 0.1.1.dev0
+
+`main`, yayımlanmış `v0.1.0` artifact'ından ileridedir. Bu bölümdeki kod
+henüz citable release değildir; yayınlandığında sürüm, tag, GitHub Release ve
+Zenodo version DOI birlikte güncellenecektir.
+
+### Fixed
+- MCP `diode_iv` grid'i, adım `v_stop` değerini tam bölmese bile istenen üst
+  biası aşmaz; son nokta `v_stop` olarak eklenir.
+- MCP lisans metadata/instructions alanları Apache-2.0 kaynak lisansıyla
+  hizalandı.
+
+### Changed
+- `tarhan demo`, terminal olmayan ortamlarda pencere açmadan tamamlanır.
+- 2D tasarım notu ve GPU değerlendirmesi, mevcut 1D ölçeğinin sonucunu 2D/3D
+  için genellemez.
+
 ## [0.1.0] — 2026-08-02
 
 İlk halka-açık-adayı iskelet: "kurulunca çalışır" + doğrulama-önce disiplini.

@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tarhan"
-version = "0.1.0"
+# ``main`` contains work after the published v0.1.0 tag.  Keep an explicit
+# development version until the next tagged release so a Git install cannot
+# masquerade as the archived, citable v0.1.0 artifact.
+version = "0.1.1.dev0"
 description = "Physics-first materials simulator: galvanic cells, fuel cells and semiconductor devices on one charged-species transport kernel"
 readme = "README.md"
 requires-python = ">=3.11"

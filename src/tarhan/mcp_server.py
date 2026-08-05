@@ -85,13 +85,20 @@ def diode_iv(na_cm3: float = 1e16, nd_cm3: float = 1e16,
         raise ValueError("side lengths must be in the 0.2-500 um range")
     if not (0.0 <= v_start <= v_stop <= 0.6):
         raise ValueError("0 <= v_start <= v_stop <= 0.6 V (yüksek-enjeksiyon sınırı)")
-    n_pts = int(round((v_stop - v_start) / v_step)) + 1
-    if n_pts > 60:
-        raise ValueError(f"{n_pts} bias noktası çok (<=60)")
+    # Never manufacture a point beyond the caller's validated upper bias.
+    # ``round(span / step)`` did exactly that for non-dividing steps: e.g.
+    # 0.50..0.60 in 0.06-V steps yielded 0.62 V, outside this API's
+    # high-injection guard.  Keep regular step points below v_stop, then add
+    # the requested endpoint once when it is not already represented.
+    n_full_steps = int(math.floor((v_stop - v_start) / v_step))
+    volts = [v_start + k * v_step for k in range(n_full_steps + 1)]
+    if not math.isclose(volts[-1], v_stop, rel_tol=0.0, abs_tol=1e-12):
+        volts.append(v_stop)
+    if len(volts) > 60:
+        raise ValueError(f"{len(volts)} bias noktası çok (<=60)")
 
     dev = PNDiode1D(Na=na_cm3, Nd=nd_cm3, len_p=len_p_um * 1e-4,
                     len_n=len_n_um * 1e-4, tau_n=tau_n_s, tau_p=tau_p_s)
-    volts = [v_start + k * v_step for k in range(n_pts)]
     js, _ = iv_sweep(dev, volts)
     return {"volts": volts, "current_a_cm2": [float(j) for j in js],
             "model": "R=0 kısa-taban" if tau_n_s is None else f"SRH tau={tau_n_s:g}s"}

@@ -25,6 +25,13 @@ def test_diode_iv_happy_path():
     assert r["current_a_cm2"][-1] > r["current_a_cm2"][0]
 
 
+def test_diode_iv_never_steps_past_requested_stop():
+    """A non-dividing step still includes, but never exceeds, v_stop."""
+    r = m.diode_iv(v_start=0.50, v_stop=0.60, v_step=0.06)
+    assert r["volts"] == pytest.approx([0.50, 0.56, 0.60])
+    assert max(r["volts"]) <= 0.60
+
+
 @pytest.mark.parametrize("kw", [
     {"na_cm3": -1e16}, {"na_cm3": float("nan")}, {"nd_cm3": 1e22},
     {"v_start": 0.5, "v_stop": 0.4}, {"v_stop": 0.9},
