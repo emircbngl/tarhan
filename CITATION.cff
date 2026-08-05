@@ -10,7 +10,7 @@ title: "TARHAN"
 message: "If you use this software, please cite it using the metadata from this file."
 type: software
 authors:
-  - given-names: Emir
+  - given-names: Muhammet Emir
     family-names: Çobanoğlu
     alias: emircbngl
 version: 0.1.0   # pyproject.toml, src/tarhan/__init__.py ve CHANGELOG.md ile SENKRON kalmalı

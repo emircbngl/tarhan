@@ -9,7 +9,7 @@ description = "Physics-first materials simulator: galvanic cells, fuel cells and
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
-authors = [{ name = "Emir Çobanoğlu" }] # CITATION.cff ile SENKRON kalmalı
+authors = [{ name = "Muhammet Emir Çobanoğlu" }] # CITATION.cff ile SENKRON kalmalı
 keywords = ["simulation", "electrochemistry", "fuel-cell", "semiconductor", "drift-diffusion", "nernst-planck"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
