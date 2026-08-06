@@ -109,11 +109,42 @@ class EdgeGeometry:
     length: float                 #: L_e, node-to-node distance
     facet: float                  #: A_e, Voronoi facet bisecting the edge
     triangles: Tuple[int, ...]    #: adjacent triangle indices (1 = boundary)
+    facet_shares: Tuple[float, ...] = ()
+    """Each adjacent triangle's own contribution to ``facet``, ordered like
+    ``triangles``; they sum to ``facet``.
+
+    Needed only where the two triangles are made of DIFFERENT materials. There
+    the edge weight is ``(cot α · ε₁ + cot β · ε₂) · L/2`` and no single
+    permittivity reproduces it — the two halves must be weighted separately. A
+    MOSFET channel runs along exactly such a line of edges.
+
+    This was missed once, and quietly. The two-dielectric test that concluded
+    "multi-region needs no region machinery" had its interface perpendicular to
+    the field, so those edges carried no flux and swapping their material moved
+    the answer by 3.4e-15 — nothing. The conclusion held for the bulk and said
+    nothing at all about the interface.
+
+    Where both triangles share a material the weighted form collapses back to
+    ``ε · facet``, so single-material callers can keep ignoring this field.
+    """
 
     @property
     def transmissibility(self) -> float:
         """``A_e / L_e`` — what the edge flux gets multiplied by."""
         return self.facet / self.length
+
+    def weighted_transmissibility(self, coefficients) -> float:
+        """``Σ_t coef_t · share_t / L_e`` — one coefficient per adjacent triangle.
+
+        The material-aware version of :attr:`transmissibility`. Pass each
+        adjacent triangle's coefficient, ordered like ``triangles``.
+        """
+        if len(coefficients) != len(self.facet_shares):
+            raise ValueError(
+                f"edge {self.nodes} has {len(self.facet_shares)} adjacent "
+                f"triangles, got {len(coefficients)} coefficients")
+        return sum(c * s for c, s in zip(coefficients,
+                                         self.facet_shares)) / self.length
 
     @property
     def is_boundary(self) -> bool:
@@ -272,6 +303,11 @@ def build_mesh(points: Sequence[Point],
                 f"edge {(i, j)} has zero length relative to the mesh extent "
                 f"({length:.3e} vs extent {extent:.3e}) — duplicate nodes?")
 
+        # Per-triangle shares are kept separately and only then summed. Summing
+        # first is what made a material-weighted interface impossible to express
+        # downstream, because the two halves were already indistinguishable.
+        shares = tuple(0.5 * _cot(_angle_at(pts[opp], pi, pj)) * length
+                       for _, opp in inc)
         cot_sum = sum(_cot(_angle_at(pts[opp], pi, pj)) for _, opp in inc)
         # A boundary edge sees one triangle, so it contributes one cot term.
         # Halving both cases keeps the interior formula (cot α + cot β)/2 and
@@ -303,9 +339,17 @@ def build_mesh(points: Sequence[Point],
                 "Left as is, the assembled matrix would not be an M-matrix and "
                 "carrier positivity would no longer be guaranteed — do not clamp "
                 "the weight.")
+        # `facet` is clamped at zero when a legitimate round-off dips it just
+        # below; the shares carry the same correction so their sum still equals
+        # it, otherwise the two would silently disagree at exactly the edges
+        # where positivity is tightest.
+        clamped = max(facet, 0.0)
+        if facet != clamped and facet != 0.0:
+            shares = tuple(s * (clamped / facet) for s in shares)
         out.append(EdgeGeometry(nodes=(i, j), length=length,
-                                facet=max(facet, 0.0),
-                                triangles=tuple(ti for ti, _ in inc)))
+                                facet=clamped,
+                                triangles=tuple(ti for ti, _ in inc),
+                                facet_shares=shares))
 
     return Mesh(points=pts, triangles=tuple(tris), edges=tuple(out))
 

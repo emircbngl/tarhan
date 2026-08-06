@@ -559,6 +559,86 @@ def test_two_dielectrics_in_series_need_no_region_machinery():
     assert field_ox / field_si == pytest.approx(eps_si / eps_ox, rel=1e-9)
 
 
+def test_interface_edges_need_the_material_weighted_coefficient():
+    """The gap the series-capacitor test could not see, and the fix, together.
+
+    Same two materials, rotated: they are stacked in y and the field is applied
+    along x, so the interface runs PARALLEL to the field and its edges carry
+    flux. Now their material assignment matters, and the analytic answer is the
+    parallel capacitor ``C = (eps_1 H_1 + eps_2 H_2)/d``.
+
+    Both branches are asserted, because only the contrast is evidence:
+
+    * a single permittivity per edge — the obvious approach, and what the
+      earlier test silently blessed — gives 0.976, i.e. 2.4% low;
+    * the facet-weighted coefficient, ``sum_t eps_t * share_t / facet``, built
+      from ``EdgeGeometry.facet_shares``, gives 1.000000000.
+
+    Twenty-four straddling edges out of 1484 produce that 2.4%. In a MOSFET
+    drain current a 2.4% error looks like a plausible answer, which is precisely
+    why the weighted form is not optional and why asserting only the correct
+    branch would have left the trap open.
+
+    No change to assemble_poisson was needed: the weighted transmissibility is
+    still one number per edge, it is simply the facet-weighted average rather
+    than a guess at which side the edge belongs to.
+    """
+    eps_0 = 8.85e-14
+    eps_ox, eps_si = 3.9 * eps_0, 11.1 * eps_0
+    depth, h_ox, h_si = 2e-5, 5e-6, 5e-6
+    n_x, n_ox, n_si = 24, 10, 10
+
+    xs = np.linspace(0.0, depth, n_x + 1)
+    ys = np.concatenate([np.linspace(0.0, h_ox, n_ox + 1),
+                         np.linspace(h_ox, h_ox + h_si, n_si + 1)[1:]])
+    pts, index = [], {}
+    for i, xv in enumerate(xs):
+        for j, yv in enumerate(ys):
+            index[(i, j)] = len(pts)
+            pts.append((xv, yv))
+    tris, tri_material = [], []
+    for i in range(len(xs) - 1):
+        for j in range(len(ys) - 1):
+            a, b = index[(i, j)], index[(i + 1, j)]
+            c, d = index[(i + 1, j + 1)], index[(i, j + 1)]
+            material = eps_ox if 0.5 * (ys[j] + ys[j + 1]) < h_ox else eps_si
+            tris += [(a, b, c), (a, c, d)]
+            tri_material += [material, material]
+    mesh = build_mesh(pts, tris)
+
+    left = [index[(0, j)] for j in range(len(ys))]
+    right = [index[(len(xs) - 1, j)] for j in range(len(ys))]
+    fixed = {i: 1.0 for i in left}
+    fixed.update({i: 0.0 for i in right})
+    zero = np.zeros(mesh.n_nodes)
+
+    def contact_charge(coef):
+        system = assemble_poisson(mesh, zero, charge=zero, dcharge_dpsi=zero,
+                                  edge_coef=coef, dirichlet=fixed)
+        psi = backend.solve_sparse(system.rows, system.cols, system.vals,
+                                   -system.residual, n=system.n_nodes)
+        flux = assemble_poisson(mesh, psi, charge=zero, dcharge_dpsi=zero,
+                                edge_coef=coef)
+        return float(flux.residual[left].sum())
+
+    straddling = [e for e in mesh.edges
+                  if len({tri_material[t] for t in e.triangles}) > 1]
+    assert straddling, "no edge straddles the two materials; test is vacuous"
+
+    weighted = np.array([
+        (sum(tri_material[t] * s for t, s in zip(e.triangles, e.facet_shares))
+         / e.facet) if e.facet > 0.0 else eps_ox
+        for e in mesh.edges])
+    single = np.array([
+        eps_ox if 0.5 * (pts[e.nodes[0]][1] + pts[e.nodes[1]][1]) <= h_ox
+        else eps_si
+        for e in mesh.edges])
+
+    analytic = (eps_ox * h_ox + eps_si * h_si) / depth   # F per cm of depth
+    assert contact_charge(weighted) == pytest.approx(analytic, rel=1e-9)
+    assert contact_charge(single) / analytic == pytest.approx(0.976, rel=1e-3)
+
+
 def test_source_is_weighted_by_node_volume():
     """A source enters as vol_i * s_i, so callers pass a density.
 
