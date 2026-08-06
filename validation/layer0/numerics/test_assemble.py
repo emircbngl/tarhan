@@ -492,6 +492,20 @@ def test_two_dielectrics_in_series_need_no_region_machinery():
       (2.846153846 here), i.e. the normal displacement is continuous. Nothing in
       the code imposes that — it emerges — so if the assembly were wrong about
       how two materials meet, this is where it would show.
+
+    WHAT THIS TEST DOES NOT COVER, measured rather than assumed. The 8 edges
+    lying ALONG the interface are perpendicular to the field here, so they carry
+    no flux: reassigning them from one material to the other changes the answer
+    by 3.4e-15 relative, i.e. not at all. Their material assignment is therefore
+    untested, and an edge whose two triangles are different materials genuinely
+    needs the facet-weighted combination ``(cot a * eps_1 + cot b * eps_2)``
+    rather than either single value. That matters wherever such edges do carry
+    field — a MOSFET channel runs along exactly such an interface — and
+    ``EdgeGeometry`` cannot express it yet, because it sums the two triangles'
+    cotangents before anyone can weight them.
+
+    So: the conclusion above holds for the BULK of a multi-region problem, which
+    is what it claims. It is not a licence to assume interface edges are right.
     """
     eps_0 = 8.85e-14
     eps_ox, eps_si = 3.9 * eps_0, 11.1 * eps_0

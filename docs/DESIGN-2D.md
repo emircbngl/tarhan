@@ -201,6 +201,27 @@ each point. It reads a Gmsh mesh, but that does not resurrect the Gmsh-reader
 milestone — the mesh is extracted through the same DEVSIM API used for every
 other stage, once the case has built it.
 
+**The gap that is actually blocking 2D-4, found by testing the earlier claim
+rather than trusting it.** The series-capacitor result above says multi-region
+electrostatics needs no region machinery, and for the bulk it does. But the
+edges lying ALONG an interface were never exercised by it: in that geometry they
+sit perpendicular to the field, so reassigning them from one material to the
+other moves the answer by 3.4e-15 relative — nothing. Their assignment was
+untested, not validated.
+
+It stops being harmless in a MOSFET. An edge whose two triangles are different
+materials needs the facet-weighted combination `(cot α · ε₁ + cot β · ε₂)·L/2`,
+not either material's value, and the channel of a MOSFET runs along precisely
+such a line of edges. `EdgeGeometry` cannot express this today: `build_mesh`
+sums the two cotangents before anything can weight them, so only one coefficient
+per edge is available downstream.
+
+This is DESIGN-2D §6 milestone 4's "check whether the region model survived"
+arriving, in a narrower and more precise form than feared — not a region and
+interface subsystem, but per-triangle facet contributions on each edge so a
+material-weighted coefficient can be formed. Until that exists, a MOSFET result
+would rest on an assumption this repository has explicitly measured as untested.
+
 **Mesh merging, which the earlier stages did not need.** DEVSIM numbers nodes
 per region, so a MOSFET arrives as three separate meshes (`bulk`, `oxide`,
 `gate`) that happen to share coordinates along two interfaces. Building one
