@@ -122,6 +122,14 @@ def _voronoi_areas_via_circumcentres(pts, tris):
     (SQUARE_PTS, SQUARE_TRIS, "unit square"),
     ([(0.0, 0.0), (0.0, 1.0), (1.3, 0.0), (1.3, 1.0), (2.1, 0.0), (2.1, 1.0)],
      [(0, 2, 3), (0, 3, 1), (2, 4, 5), (2, 5, 3)], "non-uniform strip"),
+    # The case the rule is most likely to get wrong, and the reason this one is
+    # here: node 2's angle facing the interior edge 0-1 is 118 deg, so that
+    # triangle's circumcentre falls OUTSIDE it. mesh.py deliberately permits
+    # this — the neighbour's larger cotangent absorbs it — which means the
+    # volume rule has to survive it too. Both constructions still agree, and
+    # both still total the true mesh area 1.15 exactly.
+    ([(0.0, 0.0), (1.0, 0.0), (0.5, 0.3), (0.5, -2.0)],
+     [(0, 1, 2), (0, 1, 3)], "interior obtuse triangle"),
 ])
 def test_volume_rule_agrees_with_the_circumcentre_construction(pts, tris, name):
     """Two independent constructions of the same area must agree per NODE.
