@@ -178,8 +178,30 @@ def _continuity_solve(dev, x_hat, psi, carrier, bc_left, bc_right,
 
 
 def _contact_densities(n_dop_val, delta):
+    """Ohmik kontak: yük-nötr (n̂−p̂=N̂) + np=δ² ⇒ (n̂_c, p̂_c).
+
+    ÇOĞUNLUK toplamayla, AZINLIK bölmeyle. İkisini de ½(±N̂+s) diye yazmak
+    cebirsel olarak doğru ama sayısal olarak yanlıştır: azınlık tarafında bu,
+    birbirine çok yakın iki sayının farkıdır (yıkıcı sadeleşme) ve δ küçüldükçe
+    çöker. Ölçüldü (|N̂| = 1):
+
+        δ=1e-6 → np/δ² = 0.999978   (pn1d varsayılanı; zararsız)
+        δ=1e-7 → 0.999201
+        δ=1e-8 → 1.110223           (%11 hata — DEVSIM'in 1e18 doping vakası)
+        δ=1e-9 → 0.000000           (azınlık yoğunluğu TAM sıfır)
+
+    Son satır sessiz bir felakettir: süreklilik çözümü sıfır Dirichlet değeri
+    alır, kütle etkisi yasası tamamen kaybolur ve hiçbir şey şikâyet etmez.
+    Kararlı biçim her ölçekte np = δ²'yi TAM verir. (2D-2 prototipinde
+    yakalandı: dengede np/δ² her düğümde 1.110223 çıkıyordu ve hata düğüme
+    değil, kontak formülüne bağlıydı.)
+    """
     s = math.sqrt(n_dop_val * n_dop_val + 4.0 * delta * delta)
-    return 0.5 * (n_dop_val + s), 0.5 * (-n_dop_val + s)     # (n̂_c, p̂_c)
+    if n_dop_val >= 0.0:                       # n-tarafı: elektronlar çoğunluk
+        n_hat = 0.5 * (n_dop_val + s)
+        return n_hat, delta * delta / n_hat
+    p_hat = 0.5 * (-n_dop_val + s)             # p-tarafı: deşikler çoğunluk
+    return delta * delta / p_hat, p_hat
 
 
 def solve_bias(dev: PNDiode1D, v_applied: float, state=None,

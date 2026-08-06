@@ -21,7 +21,60 @@ GRID-YAKINSAMA ÇALIŞMASI BULGULARI (2026-07-04, dürüst kayıt):
 import numpy as np
 import pytest
 
-from tarhan.models.pn1d import PNDiode1D, iv_sweep
+from tarhan.models.pn1d import PNDiode1D, _contact_densities, iv_sweep
+
+
+# --------------------------------------------------------------------------
+# Ohmic contact densities: catastrophic cancellation, and why it stayed hidden
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("delta", [1e-6, 1e-7, 1e-8, 1e-9, 1e-10])
+@pytest.mark.parametrize("n_dop", [1.0, -1.0, 0.5, -2.0])
+def test_contact_densities_hold_mass_action_at_every_scale(delta, n_dop):
+    """n_c * p_c must equal delta^2 exactly, however small delta gets.
+
+    The contact solves n - p = N together with n*p = delta^2. Writing both roots
+    as (±N + sqrt(N^2 + 4 delta^2))/2 is algebraically right and numerically
+    wrong: on the MINORITY side that is a difference of two nearly equal
+    numbers, and it degrades as delta shrinks. Measured for |N| = 1 with the
+    naive form:
+
+        delta=1e-6 -> n*p/delta^2 = 0.999978   (pn1d's own default; harmless)
+        delta=1e-7 -> 0.999201
+        delta=1e-8 -> 1.110223                 (11% out)
+        delta=1e-9 -> 0.000000                 (minority collapses to zero)
+
+    The last line is the dangerous one, and it is silent: a zero minority
+    density becomes a zero Dirichlet value in the continuity solve, mass action
+    vanishes, and nothing raises. Since delta = ni/max(Na,Nd), it is reached
+    simply by doping harder — 1e18 cm^-3 is an ordinary number and already
+    gives delta = 1e-8.
+
+    Computing the majority by ADDITION and the minority by division is exact at
+    every scale, which is what this pins.
+    """
+    n_c, p_c = _contact_densities(n_dop, delta)
+    assert n_c > 0.0 and p_c > 0.0
+    assert n_c * p_c == pytest.approx(delta * delta, rel=1e-12)
+    assert n_c - p_c == pytest.approx(n_dop, rel=1e-12, abs=1e-12)
+
+
+def test_contact_densities_put_the_majority_on_the_right_side():
+    """The sign of N decides which carrier is the majority, checked by hand.
+
+    N = +1 is the n-side, so electrons dominate: n_c = 1, p_c = delta^2.
+    N = -1 is the mirror image. Getting this backwards would reverse the diode's
+    polarity while still satisfying mass action, so the test above could not
+    catch it on its own.
+    """
+    delta = 1e-8
+    n_c, p_c = _contact_densities(1.0, delta)
+    assert n_c == pytest.approx(1.0, rel=1e-12)
+    assert p_c == pytest.approx(delta * delta, rel=1e-12)
+
+    n_c, p_c = _contact_densities(-1.0, delta)
+    assert p_c == pytest.approx(1.0, rel=1e-12)
+    assert n_c == pytest.approx(delta * delta, rel=1e-12)
 
 
 def _j03(h0, gamma):
