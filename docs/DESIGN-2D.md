@@ -164,7 +164,7 @@ Staged, each stage gated on the previous:
 | 2D-2 | 2D diode I–V | DEVSIM `dio2_element_2d.py` | ideality 1.00±0.02, currents agree | **DONE** — `models/pn2d.py` on DEVSIM's own mesh: I_n ratio 1.00000 at every bias, I_p and total 0.99938→1.00000 over 0.2–0.5 V, ideality **1.0119–1.0134** against DEVSIM's own 1.0114–1.0126. Biases ≤0.1 V excluded: currents ~1e-14 A where DEVSIM's own conservation is already 1.4e-2. This is the first stage that tests transverse transport — current has to spread to reach the partial top contact. |
 | 2D-3 | ~~MOS capacitor C–V~~ | ~~DEVSIM `ssac_cap_2d_edge.py`~~ | | **BLOCKED — and the row was wrong.** See below. |
 | 2D-3′ | Electrostatic capacitance, contact charge | DEVSIM `examples/capacitance/cap2d.py` | contact charge agrees | **DONE** — on DEVSIM's own 8281-node mesh: contact charge ratio **1.000000000** (3.350171660e-12 C/cm both), ψ within 6.6e-13 V on a 1 V scale, and the two plates cancel to −2.9e-25. No scale factor stands between the two numbers. |
-| 2D-4 | MOSFET I–V | ~~`testing/mos_2d.py`~~ → DEVSIM `examples/mobility/gmsh_mos2d.py` | drain current agrees | in progress — mesh merge done, oracle corrected (see below) |
+| 2D-4 | MOSFET I–V | ~~`testing/mos_2d.py`~~ → DEVSIM `examples/mobility/gmsh_mos2d.py` | drain current agrees | **BLOCKED** — the reference mesh is not Delaunay. See below; every machinery piece it needed is built and tested. |
 
 ### 2D-3 is blocked, and this table described it incorrectly
 
@@ -201,7 +201,48 @@ each point. It reads a Gmsh mesh, but that does not resurrect the Gmsh-reader
 milestone — the mesh is extracted through the same DEVSIM API used for every
 other stage, once the case has built it.
 
-**The gap that is actually blocking 2D-4, found by testing the earlier claim
+### 2D-4 is blocked: the reference mesh is not Delaunay
+
+Everything 2D-4 needed was built and each piece is tested: the node subdomain so
+carriers exist only in silicon, per-triangle facet shares so a material
+interface can be weighted, and the region-merge with its connectivity proof
+(2954 raw nodes to 2517, fusing only the two interfaces, single connected
+component). The MOSFET port fell over on the mesh itself.
+
+`build_mesh` refuses `gmsh_mos2d`'s geometry: 22 of its 8192 interior edges have
+a negative Voronoi weight. The first suspicion was that merging three
+independently meshed regions had created bad triangle pairs across the
+interfaces. Measured, that is wrong — **all 22 lie strictly inside a single
+region** (`bulk` and `oxide`), none across. The merge is innocent; the
+Gmsh-generated triangulations are simply not Delaunay in places.
+
+DEVSIM solves it regardless because these cases use its element formulation,
+which does not lean on the empty-circumcircle condition the way a pure edge/box
+method does. The two codes make different discretisation assumptions, and this
+mesh satisfies DEVSIM's and not TARHAN's. That is a real difference, not a bug
+in either.
+
+Every way out costs more than the row is worth:
+
+- **Clamping the weight** is forbidden here in writing, and for a reason —
+  a negative weight breaks the M-matrix property and with it the guarantee of
+  positive carrier densities. `mesh.py` says "do not clamp the weight" at the
+  point of refusal.
+- **Re-meshing** contradicts §3 ("`mesh.py` is deliberately not a mesh
+  generator") and §7 lists writing one as a way this project fails.
+- **Flipping the 22 edges** is the tempting middle path, and it is the one that
+  quietly destroys the evidence: it changes the discretisation, so the result
+  would no longer be a comparison *on the same mesh*, which is the entire basis
+  on which 2D-1, 2D-2 and 2D-3′ mean anything.
+
+So the honest position is that a MOSFET is reachable with what now exists — on a
+Delaunay mesh. What is blocked is this particular comparison, because its
+reference geometry violates a precondition the design chose deliberately. Fixing
+it means either a Delaunay MOSFET oracle, or an element-based assembly to sit
+beside the box method, and the second is a new discretisation rather than a
+missing feature.
+
+**The gap that was blocking 2D-4 before that, found by testing the earlier claim
 rather than trusting it.** The series-capacitor result above says multi-region
 electrostatics needs no region machinery, and for the bulk it does. But the
 edges lying ALONG an interface were never exercised by it: in that geometry they
@@ -267,15 +308,30 @@ them: a textbook gives a formula, DEVSIM gives numbers on the same mesh.
 
 ## 6. Milestones
 
-1. `mesh.py` + Gmsh reader + Delaunay/non-obtuse validation, with unit tests on
-   hand-computed Voronoi weights for a 4-node square.
-2. `assemble.py` + `solve_sparse`, gated on **stage 2D-0**.
-3. Equilibrium 2D (2D-1), then I–V (2D-2). This is the first point at which the
-   phrase "TARHAN does 2D" becomes true.
-4. MOS cases (2D-3, 2D-4). These need oxide regions and a second material —
-   check whether the region/interface model in `mesh.py` survived step 1.
-5. Only then: full Newton, and only then 3D — which under this design is mostly
-   `A_e` becoming an area and the Gmsh reader learning tetrahedra.
+1. **DONE**, except the Gmsh reader, which was never needed and never written:
+   meshes come out of DEVSIM through its own API, so there was nothing to parse.
+   `mesh.py` plus the positivity validation shipped, with hand-computed Voronoi
+   weights for a 4-node square — and every tolerance in it turned out to need to
+   be *relative*, since a device is 1e-5 cm across.
+2. **DONE** — `assemble.py` + `solve_sparse`, and stage 2D-0 passed on both
+   halves, exactly rather than approximately: on a strip built from `pn1d`'s own
+   grid the box method reduces to its tridiagonal scheme identically.
+3. **DONE** — 2D-1 and 2D-2 both green against DEVSIM on DEVSIM's own mesh. This
+   is the point at which "TARHAN does 2D" became true, and it is true.
+4. **PARTLY.** 2D-3 turned out to be an AC + circuit-coupling case and is
+   blocked; 2D-3′ replaced it and passed. 2D-4's machinery is all built and
+   tested — node subdomains, per-triangle facet shares for material interfaces,
+   region merging with a connectivity proof — but the stage is blocked on its
+   reference mesh not being Delaunay. The milestone's own instruction ("check
+   whether the region/interface model survived step 1") was the right question;
+   the answer was that no region subsystem was needed, only per-triangle facet
+   shares, and that the obstacle lay somewhere else entirely.
+5. Not started: full Newton, then 3D. 3D remains mostly `A_e` becoming an area —
+   and, on the evidence above, a mesh source that guarantees Delaunay.
+
+**What the 2D work does not cover, stated so nobody has to infer it:** no
+small-signal or AC solve, no circuit-node coupling, no mesh generation and no
+mesh repair, and no 2D on the MCP tool surface while any row above is not green.
 
 ## 7. Things that would make this fail
 
