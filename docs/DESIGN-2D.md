@@ -162,8 +162,37 @@ Staged, each stage gated on the previous:
 | 2D-0 | 1D problem on a 2D mesh (one cell thick) | existing `pn1d` results | matches 1D to solver tolerance — proves assembly, not physics | **DONE**, and exactly rather than approximately: on a strip built from `pn1d`'s own grid the box method reduces to its tridiagonal scheme identically (`w/vol == 1/(hm·h̄)` to 12 digits), so ψ agrees to 1.8e-15 |
 | 2D-1 | Equilibrium 2D pn junction, no bias | analytic depletion width, DEVSIM `dio2_element_2d.py` | ψ profile and W agree | **DONE** — on DEVSIM's *own* mesh (495 nodes, 880 unstructured triangles): max ∣Δψ∣ = 2.24e-16 V over the 481 nodes TARHAN solves, rms 7.39e-17 V. V_bi = 0.953719 V from TARHAN, from DEVSIM **and** from the analytic ln, differences exactly zero. Read the caveat below before quoting this. |
 | 2D-2 | 2D diode I–V | DEVSIM `dio2_element_2d.py` | ideality 1.00±0.02, currents agree | **DONE** — `models/pn2d.py` on DEVSIM's own mesh: I_n ratio 1.00000 at every bias, I_p and total 0.99938→1.00000 over 0.2–0.5 V, ideality **1.0119–1.0134** against DEVSIM's own 1.0114–1.0126. Biases ≤0.1 V excluded: currents ~1e-14 A where DEVSIM's own conservation is already 1.4e-2. This is the first stage that tests transverse transport — current has to spread to reach the partial top contact. |
-| 2D-3 | MOS capacitor C–V | DEVSIM `ssac_cap_2d_edge.py` | C–V curve agrees | |
-| 2D-4 | MOSFET I–V | DEVSIM `mos_2d.py` | drain current agrees | |
+| 2D-3 | ~~MOS capacitor C–V~~ | ~~DEVSIM `ssac_cap_2d_edge.py`~~ | | **BLOCKED — and the row was wrong.** See below. |
+| 2D-3′ | Electrostatic capacitance, contact charge | DEVSIM `examples/capacitance/cap2d.py` | contact charge agrees | **DONE** — on DEVSIM's own 8281-node mesh: contact charge ratio **1.000000000** (3.350171660e-12 C/cm both), ψ within 6.6e-13 V on a 1 V scale, and the two plates cancel to −2.9e-25. No scale factor stands between the two numbers. |
+| 2D-4 | MOSFET I–V | DEVSIM `mos_2d.py` | drain current agrees | needs regions + interfaces in `mesh.py` first |
+
+### 2D-3 is blocked, and this table described it incorrectly
+
+`ssac_cap_2d_edge.py` is not a MOS capacitor and produces no C–V curve. It is a
+parallel-plate air-gap capacitor — its regions are `air` (material `gas`) and two
+`metal` plates, with no semiconductor anywhere — and what it measures is the
+displacement current at a contact. It needs two things TARHAN does not have:
+
+- **Circuit-node coupling.** `topbias` is a circuit node, not a parameter, and
+  the device is wired to a lumped `V1` source through an `R1` resistor.
+- **A small-signal AC solve.** `solve(type="ac", frequency=…)` at 1e-3, 1e10 and
+  1e15 Hz, i.e. a complex-valued linearisation about the DC operating point. It
+  prints complex circuit node voltages.
+
+Neither is difficulty; both are a different capability. §3 proposes no circuit or
+AC layer and §4 commits to DC — Gummel first, Newton later. Building a complex
+solver and a circuit-coupling layer to tick this row would be scope invented
+after the fact, so the row is recorded as blocked rather than quietly redefined.
+
+**What replaces it.** `examples/capacitance/cap2d.py` is the same physical
+question without the AC machinery: one region of uniform permittivity, pure
+Laplace with no charge, two Dirichlet contacts, and `get_contact_charge` as the
+answer. It is reachable with what already exists — `assemble_poisson` with zero
+charge and permittivity as the edge coefficient — and it tests something no
+stage has yet: that the Poisson residual summed over a contact is a genuine
+**flux**, the electrostatic twin of the contact-current extraction 2D-2
+validated. It is a weaker statement than 2D-3 would have been, and saying so is
+the point of numbering it 2D-3′ rather than 2D-3.
 
 **The 2D-1 caveat, because the number above is easy to over-read.** Equilibrium
 is a weak test of *transverse* physics, however two-dimensional the geometry is.
