@@ -401,6 +401,74 @@ def test_apply_agrees_with_the_assembled_matrix():
     assert sys_.apply(v) == pytest.approx(sys_.to_dense() @ v, rel=1e-12)
 
 
+def test_carriers_can_be_confined_to_a_subdomain():
+    """A carrier that exists in only half the mesh, which is what an oxide is.
+
+    Electrons and holes are variables in silicon and not variables in oxide, so
+    stage 2D-4 needs the continuity equation solved on a node subset. The
+    obvious shortcut — set edge_coef to zero on the oxide edges — does not work,
+    and fails in an instructive way: a zero-weight edge is skipped by the
+    assembly, so those nodes end up with no equation at all and the matrix is
+    singular. The carrier has to be declared ABSENT, not merely immobile, which
+    is why ``subdomain`` pins the outside to zero and drops every edge with one
+    foot outside.
+
+    Dropping those edges is not an approximation: it IS the zero-flux boundary
+    condition carriers obey at a silicon/oxide interface.
+
+    Four things are checked, on a strip whose right half is inert:
+    the inert block is exactly zero; the active block still reproduces the exact
+    linear profile; the interior conserves; and the totals over the active block
+    cancel, i.e. what flows in flows out.
+    """
+    n_cells = 8
+    pts = []
+    for k in range(n_cells + 1):
+        pts += [(float(k), 0.0), (float(k), 1.0)]
+    tris = []
+    for k in range(n_cells):
+        a, b = 2 * k, 2 * (k + 1)
+        c, d = b + 1, a + 1
+        tris += [(a, b, c), (a, c, d)]
+    mesh = build_mesh(pts, tris)
+
+    xs = np.array([p[0] for p in pts])
+    active = [i for i in range(mesh.n_nodes) if xs[i] <= 4.0]
+    inert = [i for i in range(mesh.n_nodes) if xs[i] > 4.0]
+    psi = np.zeros(mesh.n_nodes)
+    ends = {0: 1.0, 1: 1.0, active[-2]: 2.0, active[-1]: 2.0}
+
+    system = assemble_continuity(mesh, np.zeros(mesh.n_nodes), psi,
+                                 carrier="hole", subdomain=active,
+                                 dirichlet=ends)
+    got = backend.solve_sparse(system.rows, system.cols, system.vals,
+                               -system.residual, n=system.n_nodes)
+
+    assert np.abs(got[inert]).max() == 0.0
+    exact = 1.0 + xs[active] / 4.0
+    assert got[active] == pytest.approx(exact, abs=1e-12)
+
+    flux = assemble_continuity(mesh, got, psi, carrier="hole", subdomain=active)
+    interior = [i for i in active if i not in ends]
+    assert np.abs(flux.residual[interior]).max() < 1e-12
+    assert abs(float(flux.residual[active].sum())) < 1e-12
+
+
+def test_subdomain_refuses_a_dirichlet_node_outside_it():
+    """Pinning a density where the carrier does not exist is meaningless.
+
+    Silently ignoring such a node, or silently honouring it, would both hide a
+    modelling mistake — a contact placed on the oxide, say — behind a solution
+    that still converges.
+    """
+    mesh, _ = strip(4)
+    with pytest.raises(ValueError, match="inside the subdomain"):
+        assemble_continuity(mesh, np.ones(mesh.n_nodes),
+                            np.zeros(mesh.n_nodes), carrier="hole",
+                            subdomain=[0, 1, 2, 3],
+                            dirichlet={0: 1.0, mesh.n_nodes - 1: 2.0})
+
+
 def test_two_dielectrics_in_series_need_no_region_machinery():
     """A multi-region problem, solved without the mesh knowing about regions.
 

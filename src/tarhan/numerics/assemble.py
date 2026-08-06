@@ -131,11 +131,22 @@ def assemble_continuity(mesh: Mesh,
                         u_t: float = 1.0,
                         edge_coef: Optional[Sequence[float]] = None,
                         source: Optional[Sequence[float]] = None,
+                        subdomain: Optional[Sequence[int]] = None,
                         dirichlet: Optional[Dict[int, float]] = None) -> System:
     """Residual and Jacobian of the steady continuity equation on ``mesh``.
 
     Parameters
     ----------
+    subdomain
+        Node indices where this carrier EXISTS. Default ``None`` means the whole
+        mesh. Outside it the density is pinned to zero and every edge with one
+        foot outside is dropped, which is exactly the zero-flux condition a
+        silicon/oxide boundary imposes on carriers.
+
+        Zeroing ``edge_coef`` on those edges instead does not work and fails in
+        a way worth naming: a zero-weight edge is skipped by the assembly, so
+        the outside nodes end up with no equation at all and the matrix is
+        singular. The carrier has to be declared absent, not merely immobile.
     carrier
         ``"electron"`` or ``"hole"``. Required, with no default, because the
         sign of ``psi`` differs between the two and getting it wrong fails
@@ -211,8 +222,27 @@ def assemble_continuity(mesh: Mesh,
     cols: List[int] = []
     vals: List[float] = []
 
+    inside = None
+    if subdomain is not None:
+        inside = np.zeros(mesh.n_nodes, dtype=bool)
+        idx_sub = np.asarray(subdomain, dtype=int)
+        if idx_sub.size and (idx_sub.min() < 0 or idx_sub.max() >= mesh.n_nodes):
+            raise ValueError(
+                f"subdomain references a node outside 0..{mesh.n_nodes - 1}")
+        inside[idx_sub] = True
+        if dirichlet and not all(inside[i] for i in dirichlet):
+            raise ValueError(
+                "every dirichlet node must lie inside the subdomain; pinning a "
+                "density where the carrier does not exist is meaningless")
+
     for k, e in enumerate(mesh.edges):
         i, j = e.nodes
+        if inside is not None and not (inside[i] and inside[j]):
+            # An edge with one foot outside carries nothing: carriers do not
+            # cross into a region where they are not a variable. Skipping it IS
+            # the zero-flux condition on the subdomain boundary, which is what a
+            # silicon/oxide boundary is for electrons and holes.
+            continue
         w = float(coef[k]) * e.transmissibility          # coef * A_e / L_e
         if w == 0.0:
             # A zero Voronoi facet is legitimate — the diagonal of the unit
@@ -244,6 +274,18 @@ def assemble_continuity(mesh: Mesh,
     rows_a = np.asarray(rows, dtype=int)
     cols_a = np.asarray(cols, dtype=int)
     vals_a = np.asarray(vals, dtype=float)
+
+    if inside is not None:
+        # Nodes where this carrier does not exist get an identity row pinning
+        # them to zero, so the system stays non-singular and the absence is
+        # explicit in the solution rather than implied by a missing equation.
+        outside = np.nonzero(~inside)[0]
+        if outside.size:
+            residual[outside] = n[outside]
+            rows_a = np.concatenate([rows_a, outside])
+            cols_a = np.concatenate([cols_a, outside])
+            vals_a = np.concatenate([vals_a,
+                                     np.ones(outside.size, dtype=float)])
 
     if dirichlet:
         for node in dirichlet:
