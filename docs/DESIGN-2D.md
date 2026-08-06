@@ -157,13 +157,26 @@ source-cited test. 2D must not be the exception, and it does not have to be:
 
 Staged, each stage gated on the previous:
 
-| Stage | Case | Oracle | Passes when |
-|---|---|---|---|
-| 2D-0 | 1D problem on a 2D mesh (one cell thick) | existing `pn1d` results | matches 1D to solver tolerance — proves assembly, not physics |
-| 2D-1 | Equilibrium 2D pn junction, no bias | analytic depletion width, DEVSIM `dio2_element_2d.py` | ψ profile and W agree |
-| 2D-2 | 2D diode I–V | DEVSIM `dio2_element_2d.py` | ideality 1.00±0.02, currents agree |
-| 2D-3 | MOS capacitor C–V | DEVSIM `ssac_cap_2d_edge.py` | C–V curve agrees |
-| 2D-4 | MOSFET I–V | DEVSIM `mos_2d.py` | drain current agrees |
+| Stage | Case | Oracle | Passes when | Status |
+|---|---|---|---|---|
+| 2D-0 | 1D problem on a 2D mesh (one cell thick) | existing `pn1d` results | matches 1D to solver tolerance — proves assembly, not physics | **DONE**, and exactly rather than approximately: on a strip built from `pn1d`'s own grid the box method reduces to its tridiagonal scheme identically (`w/vol == 1/(hm·h̄)` to 12 digits), so ψ agrees to 1.8e-15 |
+| 2D-1 | Equilibrium 2D pn junction, no bias | analytic depletion width, DEVSIM `dio2_element_2d.py` | ψ profile and W agree | **DONE** — on DEVSIM's *own* mesh (495 nodes, 880 unstructured triangles): max ∣Δψ∣ = 2.24e-16 V over the 481 nodes TARHAN solves, rms 7.39e-17 V. V_bi = 0.953719 V from TARHAN, from DEVSIM **and** from the analytic ln, differences exactly zero. Read the caveat below before quoting this. |
+| 2D-2 | 2D diode I–V | DEVSIM `dio2_element_2d.py` | ideality 1.00±0.02, currents agree | next |
+| 2D-3 | MOS capacitor C–V | DEVSIM `ssac_cap_2d_edge.py` | C–V curve agrees | |
+| 2D-4 | MOSFET I–V | DEVSIM `mos_2d.py` | drain current agrees | |
+
+**The 2D-1 caveat, because the number above is easy to over-read.** Equilibrium
+is a weak test of *transverse* physics, however two-dimensional the geometry is.
+ψ is pinned by local charge neutrality and the doping varies only in x, so the
+answer is nearly one-dimensional by construction: the measured variation of ψ
+across y is 3.13e-3 thermal volts — 81 µV against a 0.95 V built-in potential,
+0.008% of the signal. It is real and it has the right shape (largest exactly at
+the partially contacted edge, decaying about eightfold per micron into the bulk,
+identically zero on the fully contacted edge), and the Layer-0 test asserts that
+shape rather than a bare threshold. But "2D-1 passes" means the assembly and the
+contact model are right on an unstructured mesh. It does not mean transverse
+transport is validated. **2D-2 is where that gets tested**, because current has
+to spread out from the partial contact.
 
 Stage 2D-0 is the one people skip and should not: running a 1D problem through
 the 2D machinery separates "my assembly is wrong" from "my physics is wrong".
