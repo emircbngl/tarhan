@@ -161,7 +161,7 @@ Staged, each stage gated on the previous:
 |---|---|---|---|---|
 | 2D-0 | 1D problem on a 2D mesh (one cell thick) | existing `pn1d` results | matches 1D to solver tolerance — proves assembly, not physics | **DONE**, and exactly rather than approximately: on a strip built from `pn1d`'s own grid the box method reduces to its tridiagonal scheme identically (`w/vol == 1/(hm·h̄)` to 12 digits), so ψ agrees to 1.8e-15 |
 | 2D-1 | Equilibrium 2D pn junction, no bias | analytic depletion width, DEVSIM `dio2_element_2d.py` | ψ profile and W agree | **DONE** — on DEVSIM's *own* mesh (495 nodes, 880 unstructured triangles): max ∣Δψ∣ = 2.24e-16 V over the 481 nodes TARHAN solves, rms 7.39e-17 V. V_bi = 0.953719 V from TARHAN, from DEVSIM **and** from the analytic ln, differences exactly zero. Read the caveat below before quoting this. |
-| 2D-2 | 2D diode I–V | DEVSIM `dio2_element_2d.py` | ideality 1.00±0.02, currents agree | next |
+| 2D-2 | 2D diode I–V | DEVSIM `dio2_element_2d.py` | ideality 1.00±0.02, currents agree | **DONE** — `models/pn2d.py` on DEVSIM's own mesh: I_n ratio 1.00000 at every bias, I_p and total 0.99938→1.00000 over 0.2–0.5 V, ideality **1.0119–1.0134** against DEVSIM's own 1.0114–1.0126. Biases ≤0.1 V excluded: currents ~1e-14 A where DEVSIM's own conservation is already 1.4e-2. This is the first stage that tests transverse transport — current has to spread to reach the partial top contact. |
 | 2D-3 | MOS capacitor C–V | DEVSIM `ssac_cap_2d_edge.py` | C–V curve agrees | |
 | 2D-4 | MOSFET I–V | DEVSIM `mos_2d.py` | drain current agrees | |
 

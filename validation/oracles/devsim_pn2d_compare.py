@@ -128,6 +128,100 @@ def run_devsim_2d_equilibrium():
     return out
 
 
+#: 2D-2 tarama biasları. 0.1 V ve altı KASTEN dışarıda: orada akımlar ~1e-14 ve
+#: DEVSIM'in kendi akım korunumu bile 1.4e-2, yani karşılaştırılan şey gürültü.
+IV_VOLTS = (0.20, 0.30, 0.40, 0.50)
+#: Continuation adımları — warm start için, pn1d.iv_sweep gibi.
+IV_RAMP = (0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50)
+
+
+def run_devsim_2d_iv(volts=IV_RAMP, tau=1e10):
+    """DEVSIM'de aynı cihazın I-V'si; döner: ``{V: (I_n, I_p, I_top, I_bot)}``.
+
+    Referans vaka (dio2_element_physics) REKOMBİNASYONSUZDUR — ne USRH ne taun
+    tanımlar, yani R = 0 kısa-taban, pn1d'nin varsayılan modu. `simple_physics`
+    ise SRH'yi zorunlu kılar, o yüzden tau astronomik verilip kapatılır. Bu
+    varsayılmadı, ÖLÇÜLDÜ: tau'yu 1e10'dan 1e12'ye çıkarmak her biastaki akımı
+    tam 0.00e+00 değiştirir.
+    """
+    import devsim as ds
+    from devsim.python_packages import simple_physics as sp
+
+    run_devsim_2d_equilibrium()          # cihazı kurar ve dengede çözer
+    device, region = "MyDevice", "MyRegion"
+    out = {}
+    with contextlib.redirect_stdout(io.StringIO()):
+        for name, value in (("taun", tau), ("taup", tau), ("n1", NI), ("p1", NI)):
+            ds.set_parameter(device=device, region=region, name=name, value=value)
+        sp.CreateSolution(device, region, "Electrons")
+        sp.CreateSolution(device, region, "Holes")
+        ds.set_node_values(device=device, region=region, name="Electrons",
+                           init_from="IntrinsicElectrons")
+        ds.set_node_values(device=device, region=region, name="Holes",
+                           init_from="IntrinsicHoles")
+        sp.CreateSiliconDriftDiffusion(device, region)
+        for contact in ("top", "bot"):
+            sp.CreateSiliconDriftDiffusionAtContact(device, region, contact)
+
+        def current(contact, equation):
+            return ds.get_contact_current(contact=contact, equation=equation,
+                                          device=device)
+
+        for v in volts:
+            ds.set_parameter(device=device, name="top_bias", value=float(v))
+            ds.solve(type="dc", absolute_error=1e10, relative_error=1e-10,
+                     maximum_iterations=30)
+            i_n = current("top", "ElectronContinuityEquation")
+            i_p = current("top", "HoleContinuityEquation")
+            i_bot = (current("bot", "ElectronContinuityEquation")
+                     + current("bot", "HoleContinuityEquation"))
+            out[round(float(v), 4)] = (i_n, i_p, i_n + i_p, i_bot)
+    return out
+
+
+def compare_iv(quiet: bool = True):
+    """TARHAN'ın pn2d'si ve DEVSIM, AYNI mesh üzerinde, aynı biaslarda."""
+    from tarhan.models.pn2d import PNDiode2D, solve_bias
+
+    ref = run_devsim_2d_equilibrium()
+    tol = 1e-9
+    on_top = np.nonzero((np.abs(ref["x"]) < tol)
+                        & (ref["y"] >= 0.8 * DEVICE_LEN - tol))[0]
+    on_bot = np.nonzero(np.abs(ref["x"] - DEVICE_LEN) < tol)[0]
+    dev = PNDiode2D(points=list(zip(ref["x"], ref["y"])),
+                    triangles=ref["elements"], net_doping=ref["net_doping"],
+                    contacts={"top": on_top, "bot": on_bot},
+                    biased_contact="top",
+                    ni=NI, ut=V_T, eps_s=EPS, q=Q, mu_n=400.0, mu_p=200.0)
+
+    tarhan = {}
+    state = None
+    for v in IV_RAMP:
+        state = solve_bias(dev, v, state=state)
+        tarhan[round(float(v), 4)] = (state["i_n"], state["i_p"], state["i"],
+                                      state["gummel_iters"])
+
+    devsim = run_devsim_2d_iv()
+    results = {"tarhan": tarhan, "devsim": devsim, "volts": IV_VOLTS,
+               "ramp": IV_RAMP, "device": dev}
+    if not quiet:
+        print("  V   |  I_n ratio  I_p ratio  I_tot ratio")
+        for v in IV_VOLTS:
+            t, d = tarhan[v], devsim[v]
+            print(f"{v:5.2f} | {t[0]/d[0]:9.5f} {t[1]/d[1]:10.5f} {t[2]/d[2]:12.5f}")
+    return results
+
+
+def ideality(current_by_volt, volts):
+    """Ardışık noktalardan idealite: ``n = ΔV / (U_T · Δ ln I)``."""
+    out = []
+    ordered = sorted(volts)
+    for lo, hi in zip(ordered, ordered[1:]):
+        out.append((hi - lo)
+                   / (V_T * math.log(current_by_volt[hi] / current_by_volt[lo])))
+    return out
+
+
 def solve_tarhan_equilibrium(ref):
     """Aynı mesh üzerinde TARHAN'ın denge çözümü, kendi kontak koşulumuzla.
 
