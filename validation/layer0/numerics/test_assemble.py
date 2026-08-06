@@ -87,6 +87,59 @@ def test_strip_volumes_sum_to_its_area():
     assert node_volumes(mesh).sum() == pytest.approx(5.0)
 
 
+def _circumcentre(a, b, c):
+    (ax, ay), (bx, by), (cx, cy) = a, b, c
+    d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay)
+          + (cx * cx + cy * cy) * (ay - by)) / d
+    uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx)
+          + (cx * cx + cy * cy) * (bx - ax)) / d
+    return ux, uy
+
+
+def _voronoi_areas_via_circumcentres(pts, tris):
+    """Per-node Voronoi area built the other way: from actual circumcentres.
+
+    Inside each triangle the node's share is the quadrilateral spanned by the
+    node, the midpoints of its two incident edges and the circumcentre; shoelace
+    it and sum over triangles. This shares no line of code and no algebra with
+    the ``(1/4) sum A_e L_e`` rule, which is the point of having it.
+    """
+    area = np.zeros(len(pts))
+    for i, j, k in tris:
+        cc = np.array(_circumcentre(pts[i], pts[j], pts[k]))
+        for n, p, q in ((i, j, k), (j, k, i), (k, i, j)):
+            node = np.array(pts[n], dtype=float)
+            poly = [node, (node + np.array(pts[p])) / 2.0, cc,
+                    (node + np.array(pts[q])) / 2.0]
+            s = sum(poly[t][0] * poly[(t + 1) % 4][1]
+                    - poly[(t + 1) % 4][0] * poly[t][1] for t in range(4))
+            area[n] += abs(s) / 2.0
+    return area
+
+
+@pytest.mark.parametrize("pts,tris,name", [
+    (SQUARE_PTS, SQUARE_TRIS, "unit square"),
+    ([(0.0, 0.0), (0.0, 1.0), (1.3, 0.0), (1.3, 1.0), (2.1, 0.0), (2.1, 1.0)],
+     [(0, 2, 3), (0, 3, 1), (2, 4, 5), (2, 5, 3)], "non-uniform strip"),
+])
+def test_volume_rule_agrees_with_the_circumcentre_construction(pts, tris, name):
+    """Two independent constructions of the same area must agree per NODE.
+
+    Checking only that the volumes sum to the domain area is necessary but not
+    sufficient: a rule that mis-distributed area between nodes while still
+    totalling correctly would pass it, and would then silently mis-weight every
+    source term. So the reference here is built the other way — from real
+    circumcentres and a shoelace — and compared node by node, on a mesh with
+    unequal spacing so that a rule accidentally right only for uniform cells
+    fails.
+    """
+    mesh = build_mesh(pts, tris)
+    ref = _voronoi_areas_via_circumcentres(
+        [(float(x), float(y)) for x, y in pts], tris)
+    assert node_volumes(mesh) == pytest.approx(ref, abs=1e-14)
+
+
 # --------------------------------------------------------------------------
 # The assembly uses the flux law rather than re-deriving it
 # --------------------------------------------------------------------------

@@ -232,4 +232,103 @@ def assemble_continuity(mesh: Mesh,
                   n_nodes=mesh.n_nodes)
 
 
-__all__ = ["System", "assemble_continuity", "node_volumes"]
+def assemble_poisson(mesh: Mesh,
+                     psi,
+                     *,
+                     charge,
+                     dcharge_dpsi,
+                     edge_coef: Optional[Sequence[float]] = None,
+                     dirichlet: Optional[Dict[int, float]] = None) -> System:
+    """Residual and Jacobian of the (possibly nonlinear) Poisson equation.
+
+    In the scaled variables ``pn1d`` already uses (De Mari) the equation is
+    ``lap(psi) = n - p - N``, so on the box method::
+
+        F_i = sum_e w_e (psi_i - psi_j) + vol_i * charge_i
+
+    with ``w_e = coef_e * A_e / L_e``. The sign matches
+    :func:`assemble_continuity`: the Laplacian term is the positive-definite
+    one.
+
+    Parameters
+    ----------
+    charge, dcharge_dpsi
+        Node arrays for ``n - p - N`` and its derivative with respect to
+        ``psi``. They are passed in rather than computed here because the
+        statistics are the caller's business — Boltzmann today, Fermi-Dirac
+        later — and baking ``delta * exp(psi - phi)`` into the assembly would
+        turn that into a rewrite instead of an argument. Under Boltzmann the
+        derivative is ``n + p``, which is non-negative and so only strengthens
+        the diagonal.
+    dirichlet
+        ``{node: value}``; the row becomes the identity and the residual
+        ``psi_i - value``. Required for the same reason as in the continuity
+        assembly: the pure Laplacian has zero column sums.
+
+    The Jacobian is again a Z-matrix — off-diagonals are ``-w_e <= 0`` — and
+    here it is strictly diagonally dominant wherever ``dcharge_dpsi > 0``, which
+    is what makes the damped Newton inside a Gummel loop converge globally.
+    """
+    p = np.asarray(psi, dtype=float)
+    q = np.asarray(charge, dtype=float)
+    dq = np.asarray(dcharge_dpsi, dtype=float)
+    for name, arr in (("psi", p), ("charge", q), ("dcharge_dpsi", dq)):
+        if arr.shape != (mesh.n_nodes,):
+            raise ValueError(
+                f"{name} must have length {mesh.n_nodes}, got {arr.shape}")
+
+    coef = (np.ones(len(mesh.edges), dtype=float) if edge_coef is None
+            else np.asarray(edge_coef, dtype=float))
+    if coef.shape != (len(mesh.edges),):
+        raise ValueError(
+            f"edge_coef must have one entry per edge ({len(mesh.edges)}), "
+            f"got {coef.shape}")
+
+    vol = node_volumes(mesh)
+    residual = vol * q
+    rows: List[int] = []
+    cols: List[int] = []
+    vals: List[float] = []
+
+    for k, e in enumerate(mesh.edges):
+        i, j = e.nodes
+        w = float(coef[k]) * e.transmissibility
+        if w == 0.0:
+            continue
+        flow = w * (p[i] - p[j])
+        residual[i] += flow
+        residual[j] -= flow
+        rows.extend((i, i, j, j))
+        cols.extend((i, j, j, i))
+        vals.extend((w, -w, w, -w))
+
+    idx_all = np.arange(mesh.n_nodes)
+    rows.extend(idx_all.tolist())
+    cols.extend(idx_all.tolist())
+    vals.extend((vol * dq).tolist())
+
+    rows_a = np.asarray(rows, dtype=int)
+    cols_a = np.asarray(cols, dtype=int)
+    vals_a = np.asarray(vals, dtype=float)
+
+    if dirichlet:
+        for node in dirichlet:
+            if not 0 <= node < mesh.n_nodes:
+                raise ValueError(
+                    f"dirichlet node {node} outside 0..{mesh.n_nodes - 1}")
+        fixed = np.zeros(mesh.n_nodes, dtype=bool)
+        fixed[list(dirichlet)] = True
+        keep = ~fixed[rows_a]
+        rows_a, cols_a, vals_a = rows_a[keep], cols_a[keep], vals_a[keep]
+        idx = np.asarray(sorted(dirichlet), dtype=int)
+        rows_a = np.concatenate([rows_a, idx])
+        cols_a = np.concatenate([cols_a, idx])
+        vals_a = np.concatenate([vals_a, np.ones(idx.size, dtype=float)])
+        for node, value in dirichlet.items():
+            residual[node] = p[node] - float(value)
+
+    return System(residual=residual, rows=rows_a, cols=cols_a, vals=vals_a,
+                  n_nodes=mesh.n_nodes)
+
+
+__all__ = ["System", "assemble_continuity", "assemble_poisson", "node_volumes"]
