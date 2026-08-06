@@ -186,6 +186,91 @@ def test_malformed_input_is_refused(pts, tris, match):
         build_mesh(pts, tris)
 
 
+# --------------------------------------------------------------------------
+# Scale invariance. Every tolerance in mesh.py is relative; these tests exist
+# because the first version's were absolute, and unit-square figures cannot
+# see the difference.
+# --------------------------------------------------------------------------
+
+DEVICE = 1e-5      # cm — a semiconductor device is about this wide
+
+
+def test_device_scale_mesh_is_accepted():
+    """The unit square shrunk to 1e-5 cm must still be a valid mesh.
+
+    Twice its signed area is then 1e-10, and every triangle would have been
+    refused as "degenerate (zero area)" by the original absolute floor of
+    1e-14. Nothing about the geometry changed — only the unit — so a validator
+    that changes its mind here is measuring the wrong thing.
+
+    Regression for a real failure: DEVSIM's own 2D diode mesh (495 nodes, 880
+    elements, 1e-5 cm across) had 40 elements rejected for exactly this reason,
+    which blocked the entire 2D-1 comparison.
+    """
+    pts = [(x * DEVICE, y * DEVICE) for x, y in SQUARE_PTS]
+    mesh = build_mesh(pts, SQUARE_TRIS)
+    assert mesh.n_nodes == 4
+    assert all(e.facet >= 0.0 for e in mesh.edges)
+
+
+def test_transmissibility_is_scale_invariant():
+    """A_e / L_e is unchanged by a uniform rescaling.
+
+    Facet and length are both lengths, so their ratio is dimensionless and must
+    come out identical whether the mesh is expressed in centimetres or in unit
+    squares. The assembled matrix depends on the mesh ONLY through this ratio,
+    so the physics is scale-free and the validator has to be too.
+    """
+    unit = build_mesh(SQUARE_PTS, SQUARE_TRIS)
+    tiny = build_mesh([(x * DEVICE, y * DEVICE) for x, y in SQUARE_PTS],
+                      SQUARE_TRIS)
+    assert ([e.transmissibility for e in tiny.edges]
+            == pytest.approx([e.transmissibility for e in unit.edges],
+                             rel=1e-12, abs=1e-15))
+    # ...while the raw lengths did scale, so this is not a no-op comparison.
+    assert tiny.edge(0, 1).length == pytest.approx(DEVICE * unit.edge(0, 1).length)
+
+
+def test_a_sliver_at_device_scale_is_accepted():
+    """0.46 deg is thin, not degenerate — and DEVSIM's mesh really contains it.
+
+    Reproduces the worst element of DEVSIM's diode mesh: edges of 1e-6, 1e-6 and
+    8.082e-9 cm, with |2A| = 8.082e-15, which the old absolute floor rejected.
+    Its scale-invariant shape measure |2A|/Lmax^2 is 8.08e-3 — small, but many
+    orders of magnitude above any sane degeneracy tolerance.
+
+    mesh.py computes cotangents through atan2 specifically so that slivers stay
+    well conditioned; refusing them would make that effort pointless.
+    """
+    pts = [(0.0, 0.0), (1e-6, 0.0), (0.0, 8.082e-9), (1e-6, 8.082e-9)]
+    mesh = build_mesh(pts, [(0, 1, 3), (0, 3, 2)])
+    assert all(e.facet >= 0.0 for e in mesh.edges)
+    assert 8.082e-15 / (1e-6 ** 2) == pytest.approx(8.082e-3, rel=1e-3)
+
+
+def test_truly_collinear_is_still_refused_at_device_scale():
+    """Relative does not mean permissive: zero area is still zero area.
+
+    Three collinear points 1e-5 cm apart have |2A|/Lmax^2 = 0 exactly, so the
+    relative test refuses them just as the absolute one did. The change was to
+    stop conflating "small" with "flat", not to stop checking.
+    """
+    pts = [(0.0, 0.0), (DEVICE, 0.0), (2 * DEVICE, 0.0)]
+    with pytest.raises(MeshError, match="collinear"):
+        build_mesh(pts, [(0, 1, 2)])
+
+
+def test_duplicate_nodes_are_refused_relative_to_extent():
+    """A duplicated node is short compared to the DOMAIN, not compared to 1.
+
+    At device scale an honest edge is ~1e-6 long, so an absolute "zero length"
+    floor of 1e-14 could never fire and the check would be decoration.
+    """
+    pts = [(0.0, 0.0), (DEVICE, 0.0), (DEVICE, DEVICE), (0.0, 0.0)]
+    with pytest.raises(MeshError, match="zero length|degenerate|collinear"):
+        build_mesh(pts, [(0, 1, 2), (0, 2, 3)])
+
+
 def test_non_manifold_edge_is_refused():
     """Three triangles on one edge is not a 2D mesh; say so rather than average."""
     pts = SQUARE_PTS + [(0.5, 2.0)]

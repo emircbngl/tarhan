@@ -183,16 +183,43 @@ class Mesh:
 def build_mesh(points: Sequence[Point],
                triangles: Iterable[Triangle],
                *,
-               weight_atol: float = 1e-12) -> Mesh:
+               shape_rtol: float = 1e-12) -> Mesh:
     """Validate a triangulation and compute its box-method edge geometry.
 
     Raises :class:`MeshError` rather than returning a mesh that would silently
     assemble a non-M-matrix. A solve that hands back negative electron
     concentrations is worse than one that refuses to start.
+
+    ``shape_rtol`` is *relative*, and that is the whole point. Every tolerance
+    here is compared against a local length scale — a triangle's longest edge,
+    an edge's own length, the mesh's extent — never against a bare number.
+
+    The first version used absolute thresholds (``1e-14`` on twice the signed
+    area and on the edge length, ``1e-12`` on the facet). That is a bug the
+    unit-square tests could never catch, because a semiconductor device is about
+    ``1e-5`` cm across: legitimate ``|2A|`` then runs from ``8e-15`` to
+    ``1e-12``, so an absolute area floor rejects a perfectly good mesh for
+    having chosen centimetres. Measured on DEVSIM's own 2D diode mesh, 40 of its
+    880 elements were refused as "degenerate" while the worst of them had a
+    scale-invariant ``|2A| / Lmax**2`` of ``8e-3`` — a thin sliver, angles down
+    to 0.46 deg, but nowhere near degenerate.
+
+    Slivers must be admitted rather than merely survived: this module already
+    computes cotangents from ``atan2`` precisely because a real mesh has them
+    near a junction. A guard that rejected them would contradict the reason the
+    rest of the file is written the way it is.
     """
     pts = tuple((float(x), float(y)) for x, y in points)
     if len(pts) < 3:
         raise MeshError(f"a triangulation needs at least 3 nodes, got {len(pts)}")
+
+    # One global length scale, for the "are these two nodes the same point?"
+    # question — which, unlike the others, has no local scale of its own.
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    extent = max(max(xs) - min(xs), max(ys) - min(ys))
+    if not extent > 0.0:
+        raise MeshError("all nodes are at the same point; the mesh has no extent")
 
     tris: List[Triangle] = []
     for t in triangles:
@@ -205,8 +232,19 @@ def build_mesh(points: Sequence[Point],
         if len(set(t)) != 3:
             raise MeshError(f"triangle {t!r} repeats a node")
         a2 = _signed_area2(pts[t[0]], pts[t[1]], pts[t[2]])
-        if abs(a2) < 1e-14:
-            raise MeshError(f"triangle {t!r} is degenerate (zero area)")
+        # Compare an area against an area. |2A| / Lmax**2 vanishes exactly when
+        # the three points are collinear and is indifferent to the unit the
+        # coordinates are expressed in, which an absolute floor is not.
+        longest2 = max(
+            (pts[b][0] - pts[a][0]) ** 2 + (pts[b][1] - pts[a][1]) ** 2
+            for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])))
+        if longest2 <= 0.0 or abs(a2) <= shape_rtol * longest2:
+            ratio = abs(a2) / longest2 if longest2 > 0.0 else 0.0
+            raise MeshError(
+                f"triangle {t!r} is degenerate: its nodes are collinear to "
+                f"within tolerance (|2A|/Lmax^2 = {ratio:.3e}, must exceed "
+                f"{shape_rtol:.0e}). Note a thin SLIVER is not degenerate and "
+                f"is accepted — this triangle encloses no area at all.")
         # Normalise to counter-clockwise so orientation cannot silently flip a
         # sign downstream.
         tris.append(t if a2 > 0 else (t[0], t[2], t[1]))
@@ -226,8 +264,13 @@ def build_mesh(points: Sequence[Point],
                 "allows at most 2 (non-manifold input?)")
         pi, pj = pts[i], pts[j]
         length = math.hypot(pj[0] - pi[0], pj[1] - pi[1])
-        if length < 1e-14:
-            raise MeshError(f"edge {(i, j)} has zero length (duplicate nodes?)")
+        # Relative to the mesh's own extent: at device scale every edge is
+        # "short" in absolute terms, and only duplicated nodes are short
+        # compared to the domain they sit in.
+        if length <= shape_rtol * extent:
+            raise MeshError(
+                f"edge {(i, j)} has zero length relative to the mesh extent "
+                f"({length:.3e} vs extent {extent:.3e}) — duplicate nodes?")
 
         cot_sum = sum(_cot(_angle_at(pts[opp], pi, pj)) for _, opp in inc)
         # A boundary edge sees one triangle, so it contributes one cot term.
@@ -235,7 +278,11 @@ def build_mesh(points: Sequence[Point],
         # the boundary case on the same footing.
         facet = 0.5 * cot_sum * length
 
-        if facet < -weight_atol:
+        # The facet is a LENGTH, so its round-off floor scales with one. Against
+        # the edge's own length this is the previous 1e-12 at unit scale and
+        # correctly stricter below it, instead of a fixed number that grows into
+        # a real tolerance as the coordinates shrink.
+        if facet < -shape_rtol * length:
             # The two cases have different causes and different fixes, so they
             # get different messages. Saying "not Delaunay" at a boundary edge
             # would send the reader looking for an edge to flip that does not
