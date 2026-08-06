@@ -77,9 +77,14 @@ and their difference loses all precision, while the cotangent form stays well
 conditioned. A real mesh has slivers near a junction, which is exactly where a
 wrong weight would matter most.
 
-Still unproven here: that non-negative edge weights give an M-matrix, and that an
-M-matrix gives positive carrier densities. Both are standard, both are assumed,
-and neither can be checked until ``assemble.py`` exists to produce a matrix.
+That non-negative edge weights give an M-matrix could not be checked here: there
+was no matrix. ``numerics/assemble.py`` now builds one, so the claim is measured
+rather than cited. Its Layer-0 suite checks that every off-diagonal entry is
+non-positive — a Z-matrix, and since the Bernoulli function is strictly positive
+the sign of each entry rests on these weights alone — that the unconstrained
+matrix has zero column sums, and that once Dirichlet nodes pin it the inverse is
+entrywise non-negative, which is what actually forbids a negative carrier
+density.
 """
 from __future__ import annotations
 

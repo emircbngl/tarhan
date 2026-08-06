@@ -9,6 +9,7 @@ kurulmaz; bu DİKİŞ kurulur. Kurallar:
 - **scipy çağrıları koda saçılmaz**: yalnız ADLANDIRILMIŞ delegasyon noktalarında
   bulunur — backend değişiminin maliyeti modüldür, rewrite değil. Bugünkü noktalar:
     * ``backend.solve_tridiag``              → scipy.linalg.solve_banded (lineer)
+    * ``backend.solve_sparse``               → scipy.sparse.linalg.spsolve (2D)
     * ``numerics.transient.integrate_stiff`` → scipy.integrate.solve_ivp (stiff ODE)
 - **Delegasyon noktaları numpy/f64-BAĞLIDIR** (scipy öyle). Bu yüzden hem bu modül
   hem `numerics/transient.py` numpy'ı doğrudan import eder — bu bir sızıntı DEĞİL,
@@ -51,6 +52,36 @@ def set_backend(name: str) -> None:
             "— bkz. TARHAN Product Form Decision, MLX eki."
         )
     _ACTIVE = name
+
+
+def solve_sparse(rows, cols, vals, rhs, n=None):
+    """Seyrek lineer sistem çözümü (dikiş noktası, 2D için).
+
+    Girdi bir COO ÜÇLÜSÜ'dür (``rows``/``cols``/``vals``), assembled bir matris
+    değil. Sebep DESIGN-2D §4'te yazılı: assembly katmanı, tek tüketicisinin CSR
+    bir matris olduğunu varsaymamalı — aynı üçlüler matrix-free bir apply'ı da
+    besleyebilir, ve 3D'de GPU seçeneğini açık tutan tam olarak budur. Üçlü
+    burada, dikişin ARDINDA CSR'a çevrilir; çağıran bunu bilmez.
+
+    Tekrar eden ``(i, j)`` girdileri scipy tarafından TOPLANIR. Bu bir ayrıntı
+    değil: kenar döngüsü aynı düğüm çiftine her komşu kenar için ayrı ayrı
+    yazar, ve assembly'nin doğruluğu bu toplama davranışına dayanır.
+
+    Bugünkü implementasyon: scipy.sparse.linalg.spsolve (SuperLU, CPU, float64).
+    ~10^5 düğümde darboğaz olması beklenir; UMFPACK ya da ILU'lu iteratif şema O
+    ZAMAN, elde profil varken değerlendirilir — profilsiz seçilen bir
+    önkoşullayıcı tahmindir.
+    """
+    from scipy.sparse import coo_matrix as _coo
+    from scipy.sparse.linalg import spsolve as _spsolve
+
+    rhs = _np.asarray(rhs, dtype=float)
+    if n is None:
+        n = int(rhs.shape[0])
+    a = _coo((_np.asarray(vals, dtype=float),
+              (_np.asarray(rows, dtype=int), _np.asarray(cols, dtype=int))),
+             shape=(n, n)).tocsr()
+    return _spsolve(a, rhs)
 
 
 def solve_tridiag(sub, diag, sup, rhs):
