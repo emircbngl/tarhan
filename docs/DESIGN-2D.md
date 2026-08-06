@@ -164,7 +164,7 @@ Staged, each stage gated on the previous:
 | 2D-2 | 2D diode I–V | DEVSIM `dio2_element_2d.py` | ideality 1.00±0.02, currents agree | **DONE** — `models/pn2d.py` on DEVSIM's own mesh: I_n ratio 1.00000 at every bias, I_p and total 0.99938→1.00000 over 0.2–0.5 V, ideality **1.0119–1.0134** against DEVSIM's own 1.0114–1.0126. Biases ≤0.1 V excluded: currents ~1e-14 A where DEVSIM's own conservation is already 1.4e-2. This is the first stage that tests transverse transport — current has to spread to reach the partial top contact. |
 | 2D-3 | ~~MOS capacitor C–V~~ | ~~DEVSIM `ssac_cap_2d_edge.py`~~ | | **BLOCKED — and the row was wrong.** See below. |
 | 2D-3′ | Electrostatic capacitance, contact charge | DEVSIM `examples/capacitance/cap2d.py` | contact charge agrees | **DONE** — on DEVSIM's own 8281-node mesh: contact charge ratio **1.000000000** (3.350171660e-12 C/cm both), ψ within 6.6e-13 V on a 1 V scale, and the two plates cancel to −2.9e-25. No scale factor stands between the two numbers. |
-| 2D-4 | MOSFET I–V | DEVSIM `mos_2d.py` | drain current agrees | needs regions + interfaces in `mesh.py` first |
+| 2D-4 | MOSFET I–V | ~~`testing/mos_2d.py`~~ → DEVSIM `examples/mobility/gmsh_mos2d.py` | drain current agrees | in progress — mesh merge done, oracle corrected (see below) |
 
 ### 2D-3 is blocked, and this table described it incorrectly
 
@@ -183,6 +183,35 @@ Neither is difficulty; both are a different capability. §3 proposes no circuit 
 AC layer and §4 commits to DC — Gummel first, Newton later. Building a complex
 solver and a circuit-coupling layer to tick this row would be scope invented
 after the fact, so the row is recorded as blocked rather than quietly redefined.
+
+### 2D-4's oracle was also named wrong, and the right one exists
+
+Same mistake, same cause: this table was written from filenames rather than from
+reading the files. `testing/mos_2d.py` performs **no bias sweep at all** — it
+sets every one of its four contacts to 0 V, solves once with a loose
+`relative_error=1e-5`, and then writes mesh and parameter files. It is a
+setup/regression script, not an I–V characteristic. The contact currents it
+leaves behind (drain 3.5e-12, source −9.0e-12, body −8.4e-12) are residual noise
+from that loose solve at zero bias, which is why they do not sum to zero, as
+currents at a set of terminals must.
+
+`examples/mobility/gmsh_mos2d.py` is the real oracle: it ramps the gate to 0.5 V
+and then the drain to 0.5 V in 0.1 V steps, reporting every terminal current at
+each point. It reads a Gmsh mesh, but that does not resurrect the Gmsh-reader
+milestone — the mesh is extracted through the same DEVSIM API used for every
+other stage, once the case has built it.
+
+**Mesh merging, which the earlier stages did not need.** DEVSIM numbers nodes
+per region, so a MOSFET arrives as three separate meshes (`bulk`, `oxide`,
+`gate`) that happen to share coordinates along two interfaces. Building one
+global mesh means fusing coincident nodes and remapping the triangles. Verified
+on the shipped structure: 2539 raw nodes merge to 2517, fusing exactly 22 pairs
+— 11 on `bulk`∩`oxide` and 11 on `gate`∩`oxide`, which is the two interfaces and
+nothing else. `build_mesh` accepts the result (7308 edges, zero negative facets),
+and a breadth-first walk reaches all 2517 nodes from one, so it is a single
+connected component rather than three problems that would each solve happily on
+their own. That last check is the one that matters: an unmerged interface does
+not raise, it just quietly stops conducting.
 
 **What replaces it.** `examples/capacitance/cap2d.py` is the same physical
 question without the AC machinery: one region of uniform permittivity, pure
