@@ -13,7 +13,8 @@ import numpy as np
 import pytest
 
 from tarhan import backend
-from tarhan.numerics.assemble import System, assemble_continuity, node_volumes
+from tarhan.numerics.assemble import (System, assemble_continuity,
+                                      assemble_poisson, node_volumes)
 from tarhan.numerics.flux import sg_edge_flux
 from tarhan.numerics.mesh import build_mesh
 
@@ -398,6 +399,82 @@ def test_apply_agrees_with_the_assembled_matrix():
                                dirichlet={0: 1.0, 1: 1.0}, carrier="hole")
     v = rng.normal(size=mesh.n_nodes)
     assert sys_.apply(v) == pytest.approx(sys_.to_dense() @ v, rel=1e-12)
+
+
+def test_two_dielectrics_in_series_need_no_region_machinery():
+    """A multi-region problem, solved without the mesh knowing about regions.
+
+    Two dielectric slabs stacked along x, oxide then silicon, on ONE mesh. The
+    only thing that knows an interface exists is the per-EDGE permittivity: the
+    mesh carries no region tag and no interface condition is imposed anywhere.
+
+    This is the check that decides how much machinery stage 2D-4 needs. DEVSIM's
+    MOSFET case declares two silicon/oxide interfaces, which sounds like it
+    demands a region-and-interface subsystem — but its interface equation is
+    ``type="continuous"``, "continuous potential at interface", and on a shared
+    mesh the box method already gives exactly that: the coincident nodes ARE one
+    unknown, and summing their residuals is what assembly does anyway.
+
+    Three things are asserted, and the third is what proves it:
+
+    * capacitance matches the analytic series formula ``H / (d1/eps1 + d2/eps2)``
+      to a ratio of 1.000000000;
+    * the two plates' charges cancel, 1e-26 against 1e-13;
+    * the field ratio across the interface comes out at exactly eps2/eps1
+      (2.846153846 here), i.e. the normal displacement is continuous. Nothing in
+      the code imposes that — it emerges — so if the assembly were wrong about
+      how two materials meet, this is where it would show.
+    """
+    eps_0 = 8.85e-14
+    eps_ox, eps_si = 3.9 * eps_0, 11.1 * eps_0
+    d_ox, d_si, height = 2e-5, 3e-5, 1e-5           # cm
+    n_ox, n_si, n_y = 20, 30, 8
+
+    xs = np.concatenate([np.linspace(0.0, d_ox, n_ox + 1),
+                         np.linspace(d_ox, d_ox + d_si, n_si + 1)[1:]])
+    ys = np.linspace(0.0, height, n_y + 1)
+    pts, index = [], {}
+    for i, xv in enumerate(xs):
+        for j, yv in enumerate(ys):
+            index[(i, j)] = len(pts)
+            pts.append((xv, yv))
+    tris = []
+    for i in range(len(xs) - 1):
+        for j in range(len(ys) - 1):
+            a, b = index[(i, j)], index[(i + 1, j)]
+            c, d = index[(i + 1, j + 1)], index[(i, j + 1)]
+            tris += [(a, b, c), (a, c, d)]
+    mesh = build_mesh(pts, tris)
+
+    coef = np.empty(len(mesh.edges))
+    for k, e in enumerate(mesh.edges):
+        midpoint = 0.5 * (pts[e.nodes[0]][0] + pts[e.nodes[1]][0])
+        coef[k] = eps_ox if midpoint < d_ox else eps_si
+
+    left = [index[(0, j)] for j in range(len(ys))]
+    right = [index[(len(xs) - 1, j)] for j in range(len(ys))]
+    fixed = {i: 1.0 for i in left}
+    fixed.update({i: 0.0 for i in right})
+    zero = np.zeros(mesh.n_nodes)
+
+    system = assemble_poisson(mesh, zero, charge=zero, dcharge_dpsi=zero,
+                              edge_coef=coef, dirichlet=fixed)
+    psi = backend.solve_sparse(system.rows, system.cols, system.vals,
+                               -system.residual, n=system.n_nodes)
+    flux = assemble_poisson(mesh, psi, charge=zero, dcharge_dpsi=zero,
+                            edge_coef=coef)
+
+    charge = float(flux.residual[left].sum())
+    analytic = height / (d_ox / eps_ox + d_si / eps_si)   # F per cm of depth
+    assert charge / 1.0 == pytest.approx(analytic, rel=1e-9)
+    assert charge + float(flux.residual[right].sum()) == pytest.approx(
+        0.0, abs=1e-12 * abs(charge))
+
+    mid = len(ys) // 2
+    field_ox = (psi[index[(0, mid)]] - psi[index[(n_ox, mid)]]) / d_ox
+    field_si = (psi[index[(n_ox, mid)]]
+                - psi[index[(len(xs) - 1, mid)]]) / d_si
+    assert field_ox / field_si == pytest.approx(eps_si / eps_ox, rel=1e-9)
 
 
 def test_source_is_weighted_by_node_volume():
