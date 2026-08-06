@@ -120,10 +120,14 @@ def node_volumes(mesh: Mesh) -> np.ndarray:
     return vol
 
 
+CARRIERS = ("electron", "hole")
+
+
 def assemble_continuity(mesh: Mesh,
                         density,
                         psi,
                         *,
+                        carrier: str,
                         u_t: float = 1.0,
                         edge_coef: Optional[Sequence[float]] = None,
                         source: Optional[Sequence[float]] = None,
@@ -132,12 +136,33 @@ def assemble_continuity(mesh: Mesh,
 
     Parameters
     ----------
+    carrier
+        ``"electron"`` or ``"hole"``. Required, with no default, because the
+        sign of ``psi`` differs between the two and getting it wrong fails
+        SILENTLY — see below.
     density, psi
-        Node arrays: carrier density and electrostatic potential. ``psi`` is
-        held FIXED here — this is the continuity half of a Gummel step, so the
-        system is *linear in* ``density`` and a single Newton step solves it
-        exactly. That is not an optimisation; it is the property stage 2D-0
-        leans on.
+        Node arrays: the carrier density and the ELECTROSTATIC potential
+        (always the physical psi; this function negates it for electrons
+        itself). ``psi`` is held FIXED here — this is the continuity half of a
+        Gummel step, so the system is *linear in* ``density`` and a single
+        Newton step solves it exactly. That is not an optimisation; it is the
+        property stage 2D-0 leans on.
+
+    Why ``carrier`` is mandatory
+    ----------------------------
+    The edge flux vanishes at ``n_i / n_j = exp((psi_j - psi_i) / U_T)``, so the
+    operator's null space is ``density ∝ exp(-psi / U_T)``. That is the HOLE
+    relation. Electrons obey ``n = n_i exp(+psi / U_T)``, so their transport
+    needs ``-psi`` — and passing the raw ``psi`` for electrons is both the
+    natural thing to write and wrong.
+
+    It is wrong in the worst way. The solve still converges, the matrix is still
+    an M-matrix, every density comes out positive, and the profile looks
+    reasonable. Measured on DEVSIM's 495-node diode mesh, the residual at the
+    exact equilibrium is 9.4e-16 with the correct sign and 8.9e-01 with the
+    wrong one — and nothing except that residual complains.
+    ``pn1d._continuity_solve`` already takes a carrier for this reason; this is
+    the same guard, made unskippable by having no default.
     u_t
         Thermal voltage, in the same units as ``psi``.
     edge_coef
@@ -154,6 +179,13 @@ def assemble_continuity(mesh: Mesh,
         docstring) and the solve fails — deservedly, since the problem would
         then be ill-posed.
     """
+    if carrier not in CARRIERS:
+        raise ValueError(
+            f"carrier must be one of {CARRIERS}, got {carrier!r}. It has no "
+            "default on purpose: electrons transport in -psi and holes in "
+            "+psi, and the wrong choice converges to a plausible wrong answer "
+            "instead of failing.")
+
     n = np.asarray(density, dtype=float)
     p = np.asarray(psi, dtype=float)
     if n.shape != (mesh.n_nodes,) or p.shape != (mesh.n_nodes,):
@@ -162,6 +194,10 @@ def assemble_continuity(mesh: Mesh,
             f"(got {n.shape} and {p.shape})")
     if not u_t > 0:
         raise ValueError(f"u_t must be positive, got {u_t}")
+
+    # The one line the carrier argument exists for.
+    if carrier == "electron":
+        p = -p
 
     coef = (np.ones(len(mesh.edges), dtype=float) if edge_coef is None
             else np.asarray(edge_coef, dtype=float))

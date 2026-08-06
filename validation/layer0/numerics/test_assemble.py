@@ -172,12 +172,65 @@ def test_residual_equals_sg_edge_flux_on_a_single_edge():
 
     n = np.array([2.0, 5.0, 0.0, 0.0])
     psi = np.array([0.0, 0.4, 0.0, 0.0])
-    sys_ = assemble_continuity(mesh, n, psi, edge_coef=coef)
+    sys_ = assemble_continuity(mesh, n, psi, edge_coef=coef, carrier="hole")
 
     expected_inflow = float(sg_edge_flux(psi[1] - psi[0], n[0], n[1],
                                          u_t=1.0, coef=0.5))
     assert sys_.residual[0] == pytest.approx(-expected_inflow, rel=1e-14)
     assert sys_.residual[1] == pytest.approx(+expected_inflow, rel=1e-14)
+
+
+def test_each_carrier_needs_its_own_sign_of_psi():
+    """The trap the ``carrier`` argument exists to close, pinned from both sides.
+
+    Under a constant field at zero current the two carriers sit on opposite
+    exponentials — ``n = C exp(+psi/U_T)`` for electrons, ``p = C exp(-psi/U_T)``
+    for holes — so each is an exact null solution of the continuity operator
+    only under its own sign convention. Scharfetter-Gummel is built from the
+    exact ODE solution, so "exact" here means machine zero rather than "small".
+
+    Both directions are asserted, and the second is the one that matters. Were
+    only the passing case checked, a future change that dropped the negation
+    would leave this file green: the wrong carrier still converges, still yields
+    positive densities, and still looks like a diode. Measured on DEVSIM's
+    495-node mesh the residual is 9.4e-16 right and 8.9e-01 wrong — the residual
+    is the only thing that ever complains, so the residual is what gets pinned.
+    """
+    mesh, pts = strip(6)
+    xs = np.array([p[0] for p in pts])
+    u_t, field = 0.4, 3.0
+    psi = -field * xs                       # constant field
+
+    electrons = np.exp(psi / u_t)           # n = C exp(+psi/U_T)
+    holes = np.exp(-psi / u_t)              # p = C exp(-psi/U_T)
+
+    right_e = assemble_continuity(mesh, electrons, psi, carrier="electron",
+                                  u_t=u_t).residual
+    right_h = assemble_continuity(mesh, holes, psi, carrier="hole",
+                                  u_t=u_t).residual
+    assert np.abs(right_e).max() < 1e-12 * electrons.max()
+    assert np.abs(right_h).max() < 1e-12 * holes.max()
+
+    # ...and the same states with the carriers swapped are grossly out.
+    wrong_e = assemble_continuity(mesh, electrons, psi, carrier="hole",
+                                  u_t=u_t).residual
+    wrong_h = assemble_continuity(mesh, holes, psi, carrier="electron",
+                                  u_t=u_t).residual
+    assert np.abs(wrong_e).max() > 0.1 * electrons.max()
+    assert np.abs(wrong_h).max() > 0.1 * holes.max()
+
+
+def test_carrier_has_no_default_and_rejects_nonsense():
+    """Omitting the carrier must be a TypeError, not a silent default.
+
+    A default would pick a carrier on the caller's behalf, which is precisely
+    the failure this argument exists to prevent.
+    """
+    mesh = square()
+    with pytest.raises(TypeError):
+        assemble_continuity(mesh, np.ones(4), np.zeros(4))
+    with pytest.raises(ValueError, match="carrier must be one of"):
+        assemble_continuity(mesh, np.ones(4), np.zeros(4), carrier="n")
 
 
 def test_conservation_is_structural():
@@ -192,7 +245,7 @@ def test_conservation_is_structural():
     for _ in range(20):
         n = rng.uniform(0.1, 10.0, mesh.n_nodes)
         psi = rng.uniform(-2.0, 2.0, mesh.n_nodes)
-        sys_ = assemble_continuity(mesh, n, psi)
+        sys_ = assemble_continuity(mesh, n, psi, carrier="hole")
         assert abs(sys_.residual.sum()) < 1e-13
 
 
@@ -211,7 +264,7 @@ def test_jacobian_is_a_z_matrix():
     mesh, _ = strip(4)
     rng = np.random.default_rng(1)
     a = assemble_continuity(mesh, rng.uniform(0.1, 5.0, mesh.n_nodes),
-                            rng.uniform(-3.0, 3.0, mesh.n_nodes)).to_dense()
+                            rng.uniform(-3.0, 3.0, mesh.n_nodes), carrier="hole").to_dense()
     off = a - np.diag(np.diag(a))
     assert off.max() <= 1e-15
     assert np.all(np.diag(a) > 0.0)
@@ -227,7 +280,7 @@ def test_unconstrained_columns_sum_to_zero():
     mesh, _ = strip(3)
     rng = np.random.default_rng(2)
     a = assemble_continuity(mesh, rng.uniform(0.1, 5.0, mesh.n_nodes),
-                            rng.uniform(-2.0, 2.0, mesh.n_nodes)).to_dense()
+                            rng.uniform(-2.0, 2.0, mesh.n_nodes), carrier="hole").to_dense()
     assert np.abs(a.sum(axis=0)).max() < 1e-12
 
 
@@ -247,7 +300,7 @@ def test_dirichlet_makes_the_inverse_non_negative():
     rng = np.random.default_rng(3)
     a = assemble_continuity(mesh, np.ones(mesh.n_nodes),
                             rng.uniform(-1.0, 1.0, mesh.n_nodes),
-                            dirichlet=ends).to_dense()
+                            dirichlet=ends, carrier="hole").to_dense()
     assert np.linalg.inv(a).min() > -1e-12
 
 
@@ -277,12 +330,12 @@ def test_2d0_equilibrium_is_exact_on_a_2d_mesh():
     ends = {0: exact[0], 1: exact[1],
             mesh.n_nodes - 2: exact[-2], mesh.n_nodes - 1: exact[-1]}
     guess = np.ones(mesh.n_nodes)
-    sys_ = assemble_continuity(mesh, guess, psi, u_t=u_t, dirichlet=ends)
+    sys_ = assemble_continuity(mesh, guess, psi, u_t=u_t, dirichlet=ends, carrier="hole")
     got = guess + newton_step(sys_)
 
     assert got == pytest.approx(exact, rel=1e-10)
     # And the converged state really is a zero of the residual.
-    check = assemble_continuity(mesh, got, psi, u_t=u_t, dirichlet=ends)
+    check = assemble_continuity(mesh, got, psi, u_t=u_t, dirichlet=ends, carrier="hole")
     assert np.abs(check.residual).max() < 1e-9 * exact.max()
 
 
@@ -303,7 +356,7 @@ def test_2d0_pure_diffusion_matches_the_1d_answer():
             mesh.n_nodes - 2: exact[-2], mesh.n_nodes - 1: exact[-1]}
     guess = np.zeros(mesh.n_nodes)
     sys_ = assemble_continuity(mesh, guess, np.zeros(mesh.n_nodes),
-                               dirichlet=ends)
+                               dirichlet=ends, carrier="hole")
     got = guess + newton_step(sys_)
     assert got == pytest.approx(exact, rel=1e-12)
 
@@ -323,7 +376,7 @@ def test_2d0_solution_does_not_vary_across_the_strip():
     guess = np.zeros(mesh.n_nodes)
     got = guess + newton_step(
         assemble_continuity(mesh, guess, np.zeros(mesh.n_nodes),
-                            dirichlet=ends))
+                            dirichlet=ends, carrier="hole"))
     assert got[0::2] == pytest.approx(got[1::2], rel=1e-12)
 
 
@@ -342,7 +395,7 @@ def test_apply_agrees_with_the_assembled_matrix():
     rng = np.random.default_rng(4)
     sys_ = assemble_continuity(mesh, rng.uniform(0.1, 3.0, mesh.n_nodes),
                                rng.uniform(-1.5, 1.5, mesh.n_nodes),
-                               dirichlet={0: 1.0, 1: 1.0})
+                               dirichlet={0: 1.0, 1: 1.0}, carrier="hole")
     v = rng.normal(size=mesh.n_nodes)
     assert sys_.apply(v) == pytest.approx(sys_.to_dense() @ v, rel=1e-12)
 
@@ -357,8 +410,8 @@ def test_source_is_weighted_by_node_volume():
     mesh = square()
     n = np.ones(4)
     psi = np.zeros(4)
-    without = assemble_continuity(mesh, n, psi).residual
-    with_src = assemble_continuity(mesh, n, psi, source=np.full(4, 8.0)).residual
+    without = assemble_continuity(mesh, n, psi, carrier="hole").residual
+    with_src = assemble_continuity(mesh, n, psi, source=np.full(4, 8.0), carrier="hole").residual
     assert (with_src - without) == pytest.approx([2.0, 2.0, 2.0, 2.0])
 
 
@@ -375,13 +428,13 @@ def test_source_is_weighted_by_node_volume():
 def test_malformed_input_is_refused(kwargs, match):
     mesh = square()
     with pytest.raises(ValueError, match=match):
-        assemble_continuity(mesh, np.ones(4), np.zeros(4), **kwargs)
+        assemble_continuity(mesh, np.ones(4), np.zeros(4), **kwargs, carrier="hole")
 
 
 def test_mismatched_state_length_is_refused():
     mesh = square()
     with pytest.raises(ValueError, match="must both have length 4"):
-        assemble_continuity(mesh, np.ones(3), np.zeros(4))
+        assemble_continuity(mesh, np.ones(3), np.zeros(4), carrier="hole")
 
 
 def test_singular_without_dirichlet():
@@ -392,5 +445,5 @@ def test_singular_without_dirichlet():
     boundaries, the total carrier count is not determined by the equations.
     """
     mesh = square()
-    a = assemble_continuity(mesh, np.ones(4), np.zeros(4)).to_dense()
+    a = assemble_continuity(mesh, np.ones(4), np.zeros(4), carrier="hole").to_dense()
     assert abs(np.linalg.det(a)) < 1e-12
