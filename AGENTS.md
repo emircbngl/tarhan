@@ -87,10 +87,15 @@ solve behave very differently:
   with the stencil applied directly, no assembled matrix) or hand-rolled sparse
   matvec via gather/scatter.
 
-So the honest position: **re-measure when 2D lands**, and expect the answer to
-depend on the solver choice made in `docs/DESIGN-2D.md`, not on the hardware.
-A direct sparse LU stays on the CPU; a matrix-free iterative scheme is where a
-GPU could pay.
+So the honest position: **this has not been re-measured since 2D landed.** The
+verdict above is a 1D measurement and nothing more. 2D is now built as far as
+stage 2D-3′ and nobody has run the comparison again at 2D node counts. Expect
+the answer to depend on the solver choice made in `docs/DESIGN-2D.md` rather
+than on the hardware — a direct sparse LU stays on the CPU, while a matrix-free
+iterative scheme is where a GPU could pay.
+
+(This paragraph promised a re-measurement once 2D arrived, and kept promising it
+after 2D arrived. The documentation test caught it.)
 
 ## Scope — do not overclaim
 
