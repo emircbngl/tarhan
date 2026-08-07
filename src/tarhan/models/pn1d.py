@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 
 from tarhan import backend
 from tarhan.numerics.flux import bernoulli
+from tarhan.numerics.transient import integrate_stiff
 
 
 @dataclass
@@ -175,6 +176,151 @@ def _continuity_solve(dev, x_hat, psi, carrier, bc_left, bc_right,
     if float(xp.min(out)) <= 0.0:
         raise RuntimeError("süreklilik çözümü pozitifliği kaybetti (grid/bias kontrol)")
     return out
+
+
+def _poisson_linear(dev, x_hat, n_hat, p_hat, psi_left, psi_right):
+    """Poisson with the carrier densities held fixed — one tridiagonal solve.
+
+    The steady-state path solves Poisson with a Newton loop because there the
+    unknowns are the quasi-Fermi levels, so n̂ = δe^{ψ̂−φ̂n} depends on ψ̂ and the
+    equation is nonlinear. In the transient formulation n̂ and p̂ are the state
+    variables themselves, so the charge n̂ − p̂ − N̂ contains no ψ̂ at all and the
+    equation is LINEAR. That is what makes the scheme cheap: what would
+    otherwise be an index-1 DAE reduces to an ODE in (n̂, p̂), with ψ̂ recovered
+    by one tridiagonal solve per right-hand-side evaluation.
+
+    UNVERIFIED (physics_verify is unavailable this session — the physicist MCP
+    server is disconnected): the reduction argument is reasoning about the
+    structure of the equations, not a checked derivation. It is put on trial by
+    the test asserting that :func:`transient_rhs` vanishes at the independently
+    computed steady state — if the reduction were wrong, that fixed point would
+    not be a fixed point.
+    """
+    xp = backend.xp()
+    hm = x_hat[1:-1] - x_hat[:-2]
+    hp = x_hat[2:] - x_hat[1:-1]
+    hbar = 0.5 * (hm + hp)
+    sub = 1.0 / (hm * hbar)
+    sup = 1.0 / (hp * hbar)
+    diag = -(sub + sup)
+    rhs = xp.array(n_hat[1:-1] - p_hat[1:-1] - dev.doping_hat(x_hat)[1:-1],
+                   dtype=float)
+    rhs[0] = rhs[0] - sub[0] * psi_left
+    rhs[-1] = rhs[-1] - sup[-1] * psi_right
+    inner = backend.solve_tridiag(sub, diag, sup, rhs)
+    psi = xp.empty(len(x_hat))
+    psi[0], psi[-1], psi[1:-1] = psi_left, psi_right, inner
+    return psi
+
+
+def _sg_edge_weights(dpsi, h, mu_hat, carrier):
+    """Scharfetter–Gummel edge weights, in the same convention the steady-state
+    solver uses, so the two operators cannot silently disagree."""
+    Bp = bernoulli(dpsi)
+    Bm = bernoulli(-dpsi)
+    if carrier == "n":
+        return mu_hat * Bm / h, mu_hat * Bp / h
+    return mu_hat * Bp / h, mu_hat * Bm / h
+
+
+def time_scale_seconds(dev) -> float:
+    """Seconds per unit of scaled time t̂.
+
+    t0 = L_D²/(U_T·μ_scale), and substituting L_D² = εs·U_T/(q·C0) gives
+    t0 = εs/(q·C0·μ_scale) — the dielectric relaxation time at the reference
+    doping and mobility. μ_scale is max(μ_n, μ_p), the same reference the
+    steady-state current scale already uses, so the two cannot drift apart.
+
+    UNVERIFIED by physics_verify (server unavailable this session). The
+    dimensions were checked by hand: (F/cm) / (C·cm⁻³·cm²/(V·s))
+    = (F/cm)·(cm·V·s)/C = F·V·s/C = C·s/C = s.
+    """
+    mu_scale = max(dev.mu_n, dev.mu_p)
+    return dev.eps_s / (dev.q * dev.C0 * mu_scale)
+
+
+def transient_rhs(dev, x_hat, y, psi_left, psi_right, contacts):
+    """d(n̂, p̂)/dt̂ at the interior nodes, with ψ̂ solved from the state.
+
+    The sign convention is tied to the steady-state operator rather than
+    re-derived: ``_continuity_solve`` builds an M-matrix A with A·u = 0 at
+    steady state, and A·u is the net OUTFLOW at each node. So the accumulation
+    is −(A·u)/h̄, and a state that solves the steady problem must give exactly
+    zero here. That identity is the test, and it is the reason this function
+    was written against the existing operator instead of from the paper.
+    """
+    xp = backend.xp()
+    n_in = len(x_hat) - 2
+    (nL, nR), (pL, pR) = contacts
+    n_hat = xp.empty(len(x_hat))
+    p_hat = xp.empty(len(x_hat))
+    n_hat[0], n_hat[-1], n_hat[1:-1] = nL, nR, y[:n_in]
+    p_hat[0], p_hat[-1], p_hat[1:-1] = pL, pR, y[n_in:]
+
+    psi = _poisson_linear(dev, x_hat, n_hat, p_hat, psi_left, psi_right)
+
+    h = x_hat[1:] - x_hat[:-1]
+    hbar = 0.5 * ((x_hat[1:-1] - x_hat[:-2]) + (x_hat[2:] - x_hat[1:-1]))
+    dpsi = psi[1:] - psi[:-1]
+    mu_scale = max(dev.mu_n, dev.mu_p)
+
+    out = xp.empty(2 * n_in)
+    for slot, (carrier, u, mu) in enumerate(
+            (("n", n_hat, dev.mu_n / mu_scale),
+             ("p", p_hat, dev.mu_p / mu_scale))):
+        w_lo, w_hi = _sg_edge_weights(dpsi, h, mu, carrier)
+        flux = w_hi * u[1:] - w_lo * u[:-1]          # on edge e: node e -> e+1
+        out[slot * n_in:(slot + 1) * n_in] = (flux[1:] - flux[:-1]) / hbar
+    return out
+
+
+def transient_setup(dev, v_applied: float, state=None):
+    """Everything the time integrator needs, taken from the steady-state path.
+
+    Deliberately built by calling ``solve_bias`` rather than by re-deriving the
+    contact densities and the boundary potentials: those two have their own
+    subtleties — the minority carrier is formed by division to avoid a
+    cancellation that once cost 1.1 significant figures — and a second copy of
+    that reasoning is a second place for it to go wrong.
+    """
+    xp = backend.xp()
+    st = solve_bias(dev, v_applied, state=state)
+    x_hat = st["x_hat"]
+    n_dop = dev.doping_hat(x_hat)
+    delta = dev.delta
+    nL, pL = _contact_densities(float(n_dop[0]), delta)
+    nR, pR = _contact_densities(float(n_dop[-1]), delta)
+    return {
+        "state": st,
+        "x_hat": x_hat,
+        "psi_left": v_applied / dev.ut + math.log(nL / delta),
+        "psi_right": math.log(nR / delta),
+        "contacts": ((nL, nR), (pL, pR)),
+        "y_steady": xp.concatenate([st["n_hat"][1:-1], st["p_hat"][1:-1]]),
+    }
+
+
+def transient_solve(dev, v_applied: float, *, y0=None, t_span_hat=(0.0, 40.0),
+                    t_eval=None, rtol: float = 1e-8, atol: float = 1e-14,
+                    method: str = "BDF", state=None):
+    """Integrate (n̂, p̂) in scaled time. Returns the raw solution plus the setup.
+
+    ``t_span_hat`` is in units of :func:`time_scale_seconds`. The default state
+    is the steady solution itself, which should not move — that is the cheapest
+    possible regression on the whole coupling.
+    """
+    setup = transient_setup(dev, v_applied, state=state)
+    y_start = setup["y_steady"] if y0 is None else y0
+
+    def rhs(_t, y):
+        return transient_rhs(dev, setup["x_hat"], y, setup["psi_left"],
+                             setup["psi_right"], setup["contacts"])
+
+    sol = integrate_stiff(rhs, y_start, t_span_hat, t_eval=t_eval,
+                          rtol=rtol, atol=atol, method=method)
+    setup["solution"] = sol
+    setup["t_seconds"] = sol.t * time_scale_seconds(dev)
+    return setup
 
 
 def _contact_densities(n_dop_val, delta):

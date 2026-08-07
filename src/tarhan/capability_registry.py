@@ -170,17 +170,38 @@ REGISTRY: Tuple[Capability, ...] = (
         family="pn.drift-diffusion",
         dimension=1,
         time="transient",
-        status="planned",
-        inputs=("doping profile", "grid", "bias waveform", "SRH lifetimes"),
-        produces=("time-resolved psi, n, p", "terminal current transient"),
-        reason="No device model in this repository has a time derivative. "
-               "models/pn1d.py solves the steady state only; the transient "
-               "primitive in numerics/transient.py is validated on stiff "
-               "chemical kinetics and has never been coupled to a device.",
-        needs="dn/dt and dp/dt in the continuity equations, displacement "
-              "current at the contacts, and an oracle — DEVSIM's transient "
-              "examples, or the analytic anchors of diode reverse recovery. "
-              "assemble.node_volumes() already supplies the mass term.",
+        status="validated",
+        source="models/pn1d.py",
+        inputs=("doping profile", "grid", "bias", "initial (n, p) state",
+                "scaled time span"),
+        produces=("time-resolved psi, n, p", "the seconds axis"),
+        limits=("no displacement current: the state evolution is solved, but "
+                "the terminal current during a transient omits the eps*dE/dt "
+                "term, so a switching current cannot be read off yet",
+                "no SRH in the transient path — recombination is R=0 there",
+                "the bias is held fixed; there is no waveform input",
+                "isothermal, Boltzmann statistics, as in the steady path"),
+        evidence=(
+            Evidence("the validated steady state is an exact fixed point of "
+                     "the transient right-hand side",
+                     "max|dn/dt| 1.59e-13 at equilibrium and 3.69e-13 at "
+                     "0.30 V, against a Gummel tolerance floor of 1e-9",
+                     f"{_V}/semiconductor/test_pn1d_transient.py"),
+            Evidence("with n and p as state variables Poisson is linear, so "
+                     "one tridiagonal solve replaces the Newton loop",
+                     "the linear solve reproduces the Newton potential to "
+                     "8.62e-12 at equilibrium and 8.42e-11 at 0.30 V",
+                     f"{_V}/semiconductor/test_pn1d_transient.py"),
+            Evidence("a perturbed state relaxes back to the steady solution",
+                     "a 5% perturbation decays from 1.553e-1 to 7.61e-8 over "
+                     "2e4 scaled time units — a factor of 2e6",
+                     f"{_V}/semiconductor/test_pn1d_transient.py"),
+            Evidence("the time scale is the dielectric relaxation time while "
+                     "the device relaxes on the diffusion time",
+                     "t0 = 4.794e-13 s against L^2/D = 2.57e-9 s, a stiffness "
+                     "ratio of 5.37e3 that BDF crosses in 425 steps",
+                     f"{_V}/semiconductor/test_pn1d_transient.py"),
+        ),
     ),
     Capability(
         domain="semiconductor",
