@@ -24,7 +24,15 @@ from tarhan.forge import COMPACT_WIDTH, FORGE_CELL, FORGE_CELL_ASCII, Forge
 
 
 class FakeTTY(io.StringIO):
-    """A stream that claims to be a terminal, so the animated path is taken."""
+    """A stream that claims to be a terminal, so the animated path is taken.
+
+    ``encoding`` matters and is easy to forget: a bare StringIO reports None,
+    the glyph check falls back to "ascii", and every test here would quietly
+    exercise the ASCII art while believing it tested the real thing. A real
+    terminal reports utf-8, so this one does too.
+    """
+
+    encoding = "utf-8"
 
     def isatty(self):
         return True
@@ -93,6 +101,62 @@ def test_the_cursor_is_restored_even_when_the_body_raises():
     assert written.count("\x1b[?25l") == 1      # hidden once
     assert written.count("\x1b[?25h") == 1      # and shown again
     assert "FAILED" in written and "solver exploded" in written
+
+
+# --- the title sequence ----------------------------------------------------
+
+def test_the_intro_plays_the_hammer_then_leaves_the_anvil_standing():
+    """Big animation first, then only the anvil and the wordmark.
+
+    The hammer is removed at rest rather than parked above the anvil: a hammer
+    frozen in mid-air reads as something stalled, which is exactly the wrong
+    impression while a run is starting normally.
+    """
+    forge, out = _tty_forge()
+    forge.intro(strikes=2, pace=0.0)
+    written = out.stderr.getvalue()
+    assert "\x1b[2J" not in written
+    assert "✦" in written, "the strike frame never played"
+    assert "█" in written, "the anvil never appeared"
+
+    resting = "\n".join(forge._logo(100))
+    assert "▄████████▄" not in resting, "the hammer is still in the resting mark"
+    assert "█████   ███   ████" in resting, "the wordmark is missing at rest"
+
+
+def test_the_intro_is_silent_when_nothing_is_watching():
+    """A title sequence in a CI log is noise nobody asked for."""
+    out = cliout.Output(stderr=io.StringIO())
+    forge = Forge(["MESH"], out)
+    forge.intro(strikes=3, pace=0.0)
+    assert out.stderr.getvalue() == ""
+
+
+def test_the_intro_is_skippable_and_skipped_when_it_would_not_fit(monkeypatch):
+    forge, out = _tty_forge()
+    forge.intro(strikes=0)
+    assert out.stderr.getvalue() == ""
+
+    monkeypatch.setattr(shutil, "get_terminal_size",
+                        lambda *_: os.terminal_size((COMPACT_WIDTH - 6, 24)))
+    forge2, out2 = _tty_forge()
+    forge2.intro(strikes=2, pace=0.0)
+    assert out2.stderr.getvalue() == "", "no room for a title sequence"
+
+
+def test_the_closing_summary_does_not_reprint_the_mark():
+    """The anvil belongs at the top of a run, once.
+
+    A second copy carries no information the first did not, and on a short run
+    it would make the output mostly logo.
+    """
+    forge, out = _tty_forge()
+    with forge:
+        forge.begin("MESH", "reading nodes")
+        forge.converged("done")
+    summary = out.stderr.getvalue()
+    assert "█████   ███   ████" not in summary
+    assert "CONVERGED" in summary
 
 
 # --- 2. progress is stages, never a clock ----------------------------------

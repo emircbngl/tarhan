@@ -381,21 +381,68 @@ class Forge:
         detail = (stage.detail if stage else "")[:room]
         return f"{cell} {self._paint(name, 'bold')}  {detail}  {tail}"
 
-    def _logo(self, width: int) -> List[str]:
-        frame = 0 if self._final else self._frame % len(self._hammer)
-        hot = frame == STRIKE_FRAME and not self._final
-        rows = list(self._hammer[frame]) + list(self._anvil)
+    def _logo(self, width: int, frame: Optional[int] = None) -> List[str]:
+        """The mark. With ``frame``, the hammer is mid-swing; without it, at rest.
+
+        At rest the hammer is gone entirely rather than parked above the anvil:
+        a hammer frozen in the air reads as something stalled, which is the one
+        impression this display must never give when nothing is wrong.
+        """
+        if frame is None:
+            rows, word_offset, hot_row = list(self._anvil), 0, None
+        else:
+            rows = list(self._hammer[frame]) + list(self._anvil)
+            word_offset, hot_row = 5, (4 if frame == STRIKE_FRAME else None)
         lines = []
         for i, row in enumerate(rows):
             left = self._paint(row.ljust(31),
-                               "reverse" if (hot and i == 4) else "")
-            word_index = i - 5
+                               "reverse" if i == hot_row else "")
+            word_index = i - word_offset
             if width >= FULL_WIDTH and 0 <= word_index < len(self._wordmark):
                 word = self._paint(self._wordmark[word_index], "bold")
                 lines.append(f"{left}  {word}")
             else:
                 lines.append(left)
         return lines
+
+    def intro(self, strikes: int = 2, pace: float = 0.09) -> None:
+        """Play the forge once, then leave the anvil and the wordmark standing.
+
+        This is the one place a timer is the honest driver. A title sequence
+        represents no work, so pacing it by the clock claims nothing; a progress
+        bar paced by the clock claims something false. Same ``sleep``, opposite
+        meaning, and the difference is whether there is work being described.
+
+        The resting mark is *printed*, not held in the redraw region, so the
+        indicator that follows appears beneath it and the mark scrolls away
+        naturally as the run produces output. Nothing is ever cleared.
+        """
+        if not self.animate or strikes <= 0:
+            return
+        width = shutil.get_terminal_size((80, 24)).columns
+        if width < COMPACT_WIDTH:
+            return                      # no room for a title sequence
+        for beat in range(strikes * len(self._hammer)):
+            self._blit(self._logo(width, frame=beat % len(self._hammer)))
+            time.sleep(max(0.0, pace))
+        self._blit(self._logo(width))   # at rest: anvil and wordmark only
+        self._drawn = 0                 # printed for good; the run goes below
+
+    def _blit(self, lines: List[str]) -> None:
+        """Redraw a block in place by stepping back over what we drew last."""
+        out = []
+        if self._drawn:
+            out.append(f"{ESC}{self._drawn}A")
+        for line in lines:
+            out.append(ERASE_LINE + line + "\n")
+        leftovers = max(0, self._drawn - len(lines))
+        for _ in range(leftovers):
+            out.append(ERASE_LINE + "\n")
+        if leftovers:
+            out.append(f"{ESC}{leftovers}A")
+        self._drawn = len(lines)
+        self.stream.write("".join(out))
+        self.stream.flush()
 
     def _stage_lines(self, width: int) -> List[str]:
         lines = []
@@ -416,13 +463,16 @@ class Forge:
         return lines
 
     def _summary(self, width: int) -> List[str]:
+        """The closing block: what happened, not the mark again.
+
+        The anvil belongs at the top of a run, once, as the title sequence.
+        Reprinting it here would make a short run mostly logo — and the second
+        copy would carry no information the first did not.
+        """
         if width < COMPACT_WIDTH:
             return [self._status_line()]
-        lines = self._logo(width)
-        lines.append("")
-        lines.append(self._paint("PHYSICS-FIRST DEVICE SIMULATION", "dim"))
-        lines.append(self._paint(self._bar_empty * min(width - 1, FULL_WIDTH),
-                                 "dim"))
+        lines = [self._paint(self._bar_empty * min(width - 1, FULL_WIDTH),
+                             "dim")]
         lines.extend(self._stage_lines(width))
         lines.append("")
         lines.append(f"       {self._bar(min(48, width - 14))}  "
@@ -455,22 +505,12 @@ class Forge:
             return
 
         width = shutil.get_terminal_size((80, 24)).columns
-        lines = self._summary(width) if self._final else [self._indicator(width)]
-        out = []
-        if self._drawn:
-            out.append(f"{ESC}{self._drawn}A")
-        for line in lines:
-            out.append(ERASE_LINE + line + "\n")
-        leftovers = max(0, self._drawn - len(lines))
-        for _ in range(leftovers):
-            out.append(ERASE_LINE + "\n")
-        if leftovers:
-            out.append(f"{ESC}{leftovers}A")
-        # Once the summary is printed it must never be overwritten: it is the
-        # record of the run, and whatever is printed next belongs below it.
-        self._drawn = 0 if self._final else len(lines)
-        self.stream.write("".join(out))
-        self.stream.flush()
+        self._blit(self._summary(width) if self._final
+                   else [self._indicator(width)])
+        if self._final:
+            # The summary is the record of the run. Nothing may overwrite it,
+            # and whatever is printed next belongs below it.
+            self._drawn = 0
 
     def _plain_line(self) -> str:
         if self._final:
