@@ -76,6 +76,43 @@ def test_a_contact_node_outside_the_mesh_is_refused():
         _device({"top": [0, 1], "bot": [8, 99]})
 
 
+@pytest.mark.parametrize("bad", [0.9, 2.5, -0.5])
+def test_a_non_integer_node_index_is_refused(bad):
+    """0.9 must not quietly become node 0.
+
+    Casting first and asking questions later is how a contact computed slightly
+    off — a coordinate comparison, a division, an off-by-a-hair geometric
+    selection — lands on its NEIGHBOUR and the device solves anyway, reporting
+    currents for an electrode that is not where the caller thinks it is. The
+    value is checked before conversion, not after.
+    """
+    with pytest.raises(ValueError, match="non-integer"):
+        _device({"top": [bad, 1], "bot": [8, 9]})
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_a_non_finite_node_index_is_refused_cleanly(bad):
+    """NaN and inf already failed, but from inside numpy with an opaque message.
+
+    They now fail here, naming the contact, so the caller learns which electrode
+    is wrong instead of reading a cast error.
+    """
+    with pytest.raises(ValueError, match="non-finite"):
+        _device({"top": [bad, 1], "bot": [8, 9]})
+
+
+def test_integer_indices_of_any_flavour_still_work():
+    """Plain ints, numpy ints and an integer array must all stay acceptable.
+
+    The guard exists to catch a wrong VALUE, not to be fussy about dtype — and
+    the one real caller passes the output of np.nonzero, which is an int array.
+    """
+    for nodes in ([0, 1], np.array([0, 1]), np.nonzero(np.array(
+            [1, 1, 0, 0, 0, 0, 0, 0, 0, 0]))[0]):
+        dev = _device({"top": nodes, "bot": [8, 9]})
+        assert set(dev._contact_state(0.0)[0]) == {0, 1, 8, 9}
+
+
 def test_disjoint_contacts_are_accepted():
     """The guard must not reject the ordinary case it exists to protect."""
     dev = _device({"top": [0, 1], "bot": [8, 9]})

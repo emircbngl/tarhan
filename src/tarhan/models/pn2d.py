@@ -91,9 +91,25 @@ class PNDiode2D:
         # way: it simply constrains nothing.
         seen: Dict[int, str] = {}
         for name, nodes in self.contacts.items():
-            idx = np.asarray(nodes, dtype=int).ravel()
-            if idx.size == 0:
+            raw = np.asarray(nodes).ravel()
+            if raw.size == 0:
                 raise ValueError(f"contact {name!r} has no nodes")
+            # Casting to int first would swallow the mistake: 0.9 becomes node 0
+            # in silence, so a contact placed by a slightly-off computation
+            # lands on its neighbour and the device still solves. Check the
+            # value BEFORE converting.
+            if not np.issubdtype(raw.dtype, np.integer):
+                as_float = raw.astype(float, copy=False)
+                if not np.all(np.isfinite(as_float)):
+                    raise ValueError(
+                        f"contact {name!r} has a non-finite node index")
+                if not np.all(as_float == np.floor(as_float)):
+                    offender = as_float[as_float != np.floor(as_float)][0]
+                    raise ValueError(
+                        f"contact {name!r} has the non-integer node index "
+                        f"{offender!r}; truncating it would silently select a "
+                        "different node")
+            idx = raw.astype(np.int64)
             for i in idx:
                 node = int(i)
                 if not 0 <= node < len(self.points):

@@ -94,8 +94,18 @@ GPU could pay.
 
 ## Scope — do not overclaim
 
-This is 0D/1D only: `pemfc0d`, `pn1d`, `sofc1d`, `chronoamp1d`, `diffusion1d`.
-There is no 2D or 3D solver in this repo. DEVSIM (installed in the venv as the
+0D and 1D: `pemfc0d`, `pn1d`, `sofc1d`, `chronoamp1d`, `diffusion1d`.
+
+**2D exists but is partial, and the difference matters.** `numerics/mesh.py`,
+`numerics/assemble.py`, `backend.solve_sparse` and `models/pn2d.py` are built,
+and stages 2D-0 through 2D-3′ of `docs/DESIGN-2D.md` §5 are validated against
+DEVSIM: a 1D problem on a 2D mesh, the equilibrium pn junction, diode I–V with
+ideality 1.012, and electrostatic contact charge. **2D-3 and 2D-4 are BLOCKED**,
+for reasons recorded there. Not built at all: AC or small-signal, circuit
+coupling, mesh generation, 3D, and any 2D entry on the MCP tool surface. §5's
+table is the authority — quote it rather than this paragraph if the two drift.
+
+There is no 3D solver in this repo. DEVSIM (installed in the venv as the
 reference simulator) ships its own 2D/3D examples under
 `devsim_data/testing/` — those belong to DEVSIM, not to TARHAN. Do not describe
 them as this project's capability.

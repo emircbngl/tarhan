@@ -9,11 +9,16 @@ purpose: the reasoning behind each decision is worth more than a tidied account
 of the outcome. Where a decision turned out wrong — and several did — the
 correction sits next to it rather than replacing it.
 
-## 0. Where we actually are
+## 0. Where we were when this was written
 
-`src/tarhan/` is 0D and 1D, and says so in its own module names: `pemfc0d`,
-`pn1d`, `sofc1d`, `chronoamp1d`, `diffusion1d`. There is no mesh abstraction, no
-2D anything.
+*Historical. See the header and §5 for where things actually stand.* At the time
+of writing, `src/tarhan/` was 0D and 1D and said so in its own module names:
+`pemfc0d`, `pn1d`, `sofc1d`, `chronoamp1d`, `diffusion1d`. There was no mesh
+abstraction and no 2D anything.
+
+Since then `numerics/mesh.py`, `numerics/assemble.py`, `backend.solve_sparse`
+and `models/pn2d.py` have landed, and stages 2D-0 through 2D-3′ are validated
+against DEVSIM.
 
 (The `*_2d.py` and `*_3d.py` files under `.venv/devsim_data/testing/` belong to
 **DEVSIM**, the reference simulator this project validates against. They are not
@@ -265,9 +270,16 @@ untested, not validated.
 It stops being harmless in a MOSFET. An edge whose two triangles are different
 materials needs the facet-weighted combination `(cot α · ε₁ + cot β · ε₂)·L/2`,
 not either material's value, and the channel of a MOSFET runs along precisely
-such a line of edges. `EdgeGeometry` cannot express this today: `build_mesh`
-sums the two cotangents before anything can weight them, so only one coefficient
-per edge is available downstream.
+such a line of edges. `EdgeGeometry` could not express that when this was
+written: `build_mesh` summed the two cotangents before anything could weight
+them, so only one coefficient per edge reached the assembly.
+
+**Fixed since.** `EdgeGeometry.facet_shares` now carries each adjacent
+triangle's own contribution, ordered like `triangles` and summing to `facet`, so
+a caller forms `Σ_t ε_t · share_t / facet` — still one number per edge, so
+`assemble_poisson` needed no change. Measured on a geometry where interface
+edges do carry field: one permittivity per edge gives 0.976, the weighted form
+gives 1.000000000.
 
 This is DESIGN-2D §6 milestone 4's "check whether the region model survived"
 arriving, in a narrower and more precise form than feared — not a region and
