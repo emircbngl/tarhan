@@ -5,4 +5,7 @@ Validation-first geliştirme: motor koddan önce Layer-0 reprodüksiyon kataloğ
 sabitlenmiş test olmadan pakete girmez.
 """
 
-__version__ = "0.1.1.dev0"
+#: Kept in sync BY HAND with ``pyproject.toml``.  This attribute — not the
+#: packaging metadata — is what ``tarhan --version`` and the MCP ``about``
+#: manifest report.
+__version__ = "2.0.0"

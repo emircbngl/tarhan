@@ -2,37 +2,111 @@
 
 Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 
-## [Unreleased] — 0.1.1.dev0
+## [2.0.0] — 2026-08-07
 
-### Added
+**Why 2.0.0 and not 1.0.0.** The only published tag is `v0.1.0`, so this skips a
+whole major number. That is deliberate, and it is answered once, here: between
+the two artifacts the project relicensed (AGPL-3.0-or-later → Apache-2.0) and
+broke two published function signatures. SemVer prices both of those at "major".
+Nothing was ever released as 1.x — there is no missing release to go looking
+for.
+
+### Changed — API breaks
+
+- **`assemble_continuity` now requires a `carrier` argument** (`"electron"` or
+  `"hole"`); there is no default. The default was the bug: the two equations
+  differ only by the sign of ψ inside the Scharfetter–Gummel exponent, so
+  calling it for the wrong carrier does not raise, does not warn, and converges
+  — to the wrong answer. Measured against the equilibrium null space, the
+  residual is 9.4e-16 with the right carrier and 8.9e-01 with the wrong one. A
+  silent wrong answer is worse than a broken caller, so the caller breaks.
+- **`build_mesh`'s `weight_atol` became `shape_rtol`**, and every geometric
+  tolerance in the mesh builder is now *relative* — to the longest edge of the
+  triangle for degeneracy, to the mesh extent for edge length, to the edge
+  length for the Voronoi facet. The absolute tolerances were calibrated on unit
+  meshes and rejected real device meshes, where a cell is ~1e-5 cm and every
+  legitimate area sits under the old absolute floor. `shape_rtol` is validated
+  on entry: non-finite or non-positive is refused rather than propagated as NaN
+  comparisons that quietly answer "not degenerate".
+- **Licence: AGPL-3.0-or-later → Apache-2.0** (`LICENSE`, `NOTICE`, MCP
+  metadata). This changes the terms the published artifact may be used under,
+  which is why it is at the top of a major release rather than buried in it.
+
+### Added — 2D, as far as it honestly goes
+
 - `numerics/mesh.py`: box-method (finite-volume / Voronoi) edge geometry for 2D
-  triangular meshes — edge length, Voronoi facet, and the positivity guard.
-  Geometry only; mesh *generation* stays out of scope (read a `.msh`). First
-  step of `docs/DESIGN-2D.md`, with hand-derived Layer-0 tests.
+  triangular meshes — edge length, Voronoi facet, and the positivity guard,
+  which is the Delaunay condition written as `cot α + cot β ≥ 0`. Geometry only;
+  mesh *generation* stays out of scope — a mesh is read, never made.
+  `EdgeGeometry` also carries per-triangle `facet_shares`, so an edge on a
+  material interface can be weighted per region.
+- `numerics/assemble.py`: the edge loop — Scharfetter–Gummel continuity and
+  Poisson assembly over the box mesh, Dirichlet contacts, `subdomain` support
+  for a carrier that exists in only part of the device, and `node_volumes`.
+  `edge_coef` is checked finite and non-negative, because a negative
+  coefficient destroys the M-matrix property that carrier positivity rests on.
+- `backend.solve_sparse`: the sparse seam, taking COO triplets rather than an
+  assembled matrix, so the backend boundary does not force a matrix type on its
+  caller.
+- `models/pn2d.py`: `PNDiode2D` — equilibrium and biased solves, `iv_sweep`,
+  `contact_current`. Contacts are validated non-empty, in range, disjoint, and
+  integer-valued *before* casting: a node listed in two contacts made the answer
+  depend on dictionary insertion order (a measured 19-volt swing on one device),
+  and `0.9` quietly becoming node `0` reports currents for an electrode that is
+  not where the caller thinks it is.
+- Validation stages **2D-0, 2D-1, 2D-2 and 2D-3′**, each against DEVSIM on
+  DEVSIM's own meshes: ψ to 1.8e-15 for a 1D problem run through the 2D
+  machinery; max |Δψ| 2.24e-16 V at equilibrium; diode I_n ratio 1.00000 with
+  ideality 1.0119–1.0134 against DEVSIM's own 1.0114–1.0126; contact charge
+  ratio 1.000000000. **2D-3 and 2D-4 are BLOCKED** — no AC or circuit layer, and
+  a reference mesh that is not Delaunay — with reasons recorded in
+  `docs/DESIGN-2D.md` §5 rather than left to folklore.
+- `validation/layer0/test_docs_match_the_code.py`: Layer-0 applied to the prose.
+  It fails when a live section denies a capability the code has, when a
+  documented source path does not exist, when a stage marked DONE has no test
+  behind it, or when a BLOCKED stage does not say why. It exists because that
+  class of defect appeared twice in review, and it found a stale claim on its
+  first run. It cannot catch a wrong *number*, and says so in its own docstring.
+- `tools/job.py`: a job runner, so an agent waits on a file contract instead of
+  guessing how long a command takes.
 
-### Fixed
-- `diode_iv` now counts its bias points *before* building the sweep, so a
-  request that exceeds the 60-point cap is rejected without materialising the
-  list first. Measured on the rejected path: 112 MB / 1198 ms at `v_step=1e-7`
-  before, 1 KB / 0.1 ms after. These are MCP tools, so the step size is
-  caller-supplied and only checked for positive+finite.
+### Fixed — two 1D bugs, both found from the 2D side
+
+- **`pn1d._contact_densities` lost the minority carrier to catastrophic
+  cancellation.** The contact densities came from the quadratic root, whose
+  minority branch subtracts two nearly equal numbers, so `n·p/δ²` came out
+  1.110223 instead of 1 — uniformly, across sixteen orders of magnitude of
+  doping. That uniformity was the clue: a precision floor would track the
+  doping, and this did not. The majority carrier is now formed by addition and
+  the minority as `δ²/majority`, which never subtracts.
+- **The mesh tolerances were absolute** (see the API break above), found by
+  handing the 1D-derived builder a real device mesh, where it rejected valid
+  triangles.
+- `diode_iv` counts its bias points *before* building the sweep, so a request
+  over the 60-point cap is rejected without materialising the list. Measured on
+  the rejected path: 112 MB / 1198 ms at `v_step=1e-7` before, 1 KB / 0.1 ms
+  after. These are MCP tools, so the step size is caller-supplied.
+- `diode_iv`'s grid never steps past the requested `v_stop` when the step does
+  not divide the interval; the last point is `v_stop` itself.
+- The MCP test's skip guard named the parent package instead of the module the
+  code imports (`mcp.server.fastmcp`). An environment carrying mcp 2.x — which
+  removed that module, and is why `pyproject` pins `mcp>=1.1,<2` — did not skip,
+  then failed inside `build_server` telling the reader to install an extra that
+  was already installed. Caught by fresh-clone verification, which installs only
+  `[dev]` and therefore has no pin protecting it.
 - Two remaining Turkish error strings in `diode_iv` are now English, matching
   the rest of the tool surface an agent reads.
-
-`main`, yayımlanmış `v0.1.0` artifact'ından ileridedir. Bu bölümdeki kod
-henüz citable release değildir; yayınlandığında sürüm, tag, GitHub Release ve
-Zenodo version DOI birlikte güncellenecektir.
-
-### Fixed
-- MCP `diode_iv` grid'i, adım `v_stop` değerini tam bölmese bile istenen üst
-  biası aşmaz; son nokta `v_stop` olarak eklenir.
-- MCP lisans metadata/instructions alanları Apache-2.0 kaynak lisansıyla
-  hizalandı.
+- MCP licence metadata and instructions aligned with the Apache-2.0 source
+  licence.
 
 ### Changed
-- `tarhan demo`, terminal olmayan ortamlarda pencere açmadan tamamlanır.
-- 2D tasarım notu ve GPU değerlendirmesi, mevcut 1D ölçeğinin sonucunu 2D/3D
-  için genellemez.
+
+- `tarhan demo` completes without opening a window when stdout is not a
+  terminal, so it cannot block CI or an agent shell.
+- The GPU verdict is stated as a verdict about *scale*, not about GPUs: MLX is
+  ~50× slower than NumPy at the 1D working size (n=2e4), and that measurement is
+  explicitly not generalised to 2D or 3D. It has **not** been re-measured since
+  2D landed, and `AGENTS.md` now says that instead of promising to.
 
 ## [0.1.0] — 2026-08-02
 

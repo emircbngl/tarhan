@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tarhan"
-# ``main`` contains work after the published v0.1.0 tag.  Keep an explicit
-# development version until the next tagged release so a Git install cannot
-# masquerade as the archived, citable v0.1.0 artifact.
-version = "0.1.1.dev0"
+# Kept in sync BY HAND with ``src/tarhan/__init__.py``.  The CLI, ``tarhan
+# --version`` and the MCP ``about`` manifest all read the module attribute, not
+# this table, so changing one and not the other ships a package that disagrees
+# with itself about what it is.  2.0.0 skips 1.x on purpose — see CHANGELOG.md.
+version = "2.0.0"
 description = "Physics-first materials simulator: galvanic cells, fuel cells and semiconductor devices on one charged-species transport kernel"
 readme = "README.md"
 requires-python = ">=3.11"

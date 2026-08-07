@@ -137,6 +137,29 @@ See [`validation/CATALOG.md`](validation/CATALOG.md) for details, provenance and
 license flags. Code is never copied from sources — algorithms are reimplemented and
 compared against published numbers.
 
+## 2D — partly built, and the boundary is the point
+
+The box (finite-volume / Voronoi) method on triangular meshes, validated stage by
+stage against **DEVSIM** — an independent production TCAD code — on *DEVSIM's own
+meshes*, so no difference in mesh or discretisation can hide inside the
+comparison. The ladder and its reasoning live in
+[`docs/DESIGN-2D.md`](docs/DESIGN-2D.md) §5, which is the authority if that table
+and this one ever drift apart.
+
+| Stage | Case | Oracle | Status |
+|---|------|--------|--------|
+| 2D-0 | A 1D problem run through the 2D machinery | `pn1d` itself | ✅ exact rather than approximate: on a strip built from `pn1d`'s own grid the box method reduces to its tridiagonal scheme identically, so ψ agrees to **1.8e-15** |
+| 2D-1 | Equilibrium 2D pn junction | DEVSIM + analytic V_bi | ✅ max \|Δψ\| = **2.24e-16 V**; V_bi identical from TARHAN, from DEVSIM, and from V_t·ln(N_a·N_d/n_i²) |
+| 2D-2 | 2D diode I–V | DEVSIM, same mesh | ✅ I_n ratio **1.00000** at every bias; ideality **1.0119–1.0134** against DEVSIM's own **1.0114–1.0126**. The first stage that exercises transverse transport |
+| 2D-3′ | Electrostatic contact charge | DEVSIM `cap2d.py` | ✅ contact charge ratio **1.000000000** |
+| 2D-3 | MOS capacitor C–V | — | ⛔ **BLOCKED** — the reference case is a small-signal AC solve wired to a lumped circuit, and this code has neither an AC nor a circuit layer |
+| 2D-4 | MOSFET I–V | — | ⛔ **BLOCKED** — the reference mesh is not Delaunay on 22 of its interior edges, and the box method's positivity guarantee rests on exactly that property |
+
+**What 2D is not.** No AC or small-signal solve, no circuit coupling, no mesh
+generation and no mesh repair — meshes are read, never made — no 3D, and no 2D on
+the MCP tool surface. Two of the six rows above are blocked and say why; that is
+the honest shape of it.
+
 ## License
 
 **Apache-2.0** (see `LICENSE` and `NOTICE`). Copyright © 2026 Muhammet Emir Çobanoğlu.

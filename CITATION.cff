@@ -1,10 +1,15 @@
-# Yasal isim eklendi (2026-07-31). Zenodo DOI eklendi (2026-08-02) — KAPANDI.
+# Yasal isim eklendi (2026-07-31). Zenodo DOI eklendi (2026-08-02).
 # (kuruluş ilkesi #16: atıflanabilirlik altyapıdır; concept-DOI vs version-DOI ayrımına dikkat)
 #
-# Aşağıdaki metadata yayımlanmış v0.1.0 artifact'ını tarif eder. ``main``
-# v0.1.1.dev0 olduğu için bu CFF sürümünü yayınlanmamış geliştirme koduna
-# taşımıyoruz; v0.1.1 tag'i + Zenodo arşivi oluştuğunda version/date ve yeni
-# version DOI birlikte güncellenecek. Concept DOI değişmez.
+# Aşağıdaki metadata 2.0.0 sürümünü tarif eder. DİKKAT — bu dosya sürümün bir
+# adım ÖNÜNDEDİR: 2.0.0 kodu hazır ve ``main``'de, ama v2.0.0 tag'i, GitHub
+# Release ve Zenodo arşivi henüz OLUŞTURULMADI. Bu yüzden 2.0.0'ın bir version
+# DOI'si yok ve aşağıdaki identifiers listesinde de yok; oradaki version DOI
+# hâlâ v0.1.0'a aittir ve öyle etiketlidir. Üstteki ``doi:`` alanı concept
+# DOI'dir: her zaman en son sürüme çözülür ve değişmez.
+#
+# Tag + Zenodo arşivi oluştuğunda yapılacak TEK iş, identifiers'a 2.0.0'ın
+# version DOI'sini eklemektir; version/date-released zaten burada.
 cff-version: 1.2.0
 title: "TARHAN"
 message: "If you use this software, please cite it using the metadata from this file."
@@ -13,8 +18,8 @@ authors:
   - given-names: Muhammet Emir
     family-names: Çobanoğlu
     alias: emircbngl
-version: 0.1.0   # yayımlanmış artifact; development sürümü değildir
-date-released: 2026-08-02
+version: 2.0.0
+date-released: 2026-08-07
 repository-code: "https://github.com/emircbngl/tarhan"
 doi: 10.5281/zenodo.21761218
 identifiers:
