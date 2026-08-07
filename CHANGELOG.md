@@ -2,14 +2,15 @@
 
 Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 
-## [2.0.0] — 2026-08-07
+## [0.2.0] — 2026-08-07
 
-**Why 2.0.0 and not 1.0.0.** The only published tag is `v0.1.0`, so this skips a
-whole major number. That is deliberate, and it is answered once, here: between
-the two artifacts the project relicensed (AGPL-3.0-or-later → Apache-2.0) and
-broke two published function signatures. SemVer prices both of those at "major".
-Nothing was ever released as 1.x — there is no missing release to go looking
-for.
+**Why 0.2.0, when this release breaks two published signatures and changes the
+licence.** SemVer's rule for `0.y.z` is that the public API is not stable and
+anything may change — which is exactly what "pre-alpha" means where the README,
+the CLI and the MCP manifest all say it. A major version would have made the
+version string claim a maturity the project claims nowhere else. So the number
+stays small and the breaks stay loud: they are the first section below, each
+with the reason that forced it.
 
 ### Changed — API breaks
 
@@ -29,8 +30,10 @@ for.
   on entry: non-finite or non-positive is refused rather than propagated as NaN
   comparisons that quietly answer "not degenerate".
 - **Licence: AGPL-3.0-or-later → Apache-2.0** (`LICENSE`, `NOTICE`, MCP
-  metadata). This changes the terms the published artifact may be used under,
-  which is why it is at the top of a major release rather than buried in it.
+  metadata). This changes the terms the published artifact may be used under.
+  Anyone who took v0.1.0 under AGPL keeps it under AGPL; this release is the
+  first one carrying Apache-2.0, which is the more permissive of the two, so no
+  existing user loses a right they had.
 
 ### Added — 2D, as far as it honestly goes
 

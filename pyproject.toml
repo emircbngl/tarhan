@@ -7,8 +7,10 @@ name = "tarhan"
 # Kept in sync BY HAND with ``src/tarhan/__init__.py``.  The CLI, ``tarhan
 # --version`` and the MCP ``about`` manifest all read the module attribute, not
 # this table, so changing one and not the other ships a package that disagrees
-# with itself about what it is.  2.0.0 skips 1.x on purpose — see CHANGELOG.md.
-version = "2.0.0"
+# with itself about what it is.  Stays on 0.y.z while the project calls itself
+# pre-alpha: under SemVer that is the version range where the API may still
+# break, which is the truthful claim here — see CHANGELOG.md.
+version = "0.2.0"
 description = "Physics-first materials simulator: galvanic cells, fuel cells and semiconductor devices on one charged-species transport kernel"
 readme = "README.md"
 requires-python = ">=3.11"

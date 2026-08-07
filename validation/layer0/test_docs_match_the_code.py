@@ -38,8 +38,11 @@ import sys
 import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
+#: The roadmap is in this list on purpose. A plan document is the likeliest of
+#: them all to go stale, because it describes things that do not exist yet and
+#: nothing breaks on the day one of them quietly starts existing.
 DOCS = ["README.md", "AGENTS.md", "CHANGELOG.md", "CONTRIBUTING.md",
-        "docs/DESIGN-2D.md"]
+        "docs/DESIGN-2D.md", "docs/ROADMAP-CLI-TUI.md"]
 
 
 def _sections(text):
