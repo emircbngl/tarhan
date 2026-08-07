@@ -51,13 +51,40 @@ python3 tools/job.py run tests -- pytest -q
 python3 tools/job.py wait tests
 ```
 
-Measured on an M4: the full suite is **a few seconds** (152 tests, 4 xfail,
-1 skip). If it has not finished in a minute, something is wrong — do not wait
-longer, look at the log.
+Measured on an M4: the full suite is **a few seconds** (338 passed, 4 xfail).
+If it has not finished in a minute, something is wrong — do not wait longer,
+look at the log.
 
 `tarhan demo` prints its table and exits. It only opens a plot window when
 stdout is a terminal; pass `--show` to force one, `--save out.png` to write the
 figure instead. It will not block a CI job or an agent shell.
+
+## Ask the code what it can do, instead of guessing
+
+```bash
+tarhan capabilities list                      # every capability and its status
+tarhan capabilities show <capability-id>      # limits, evidence, or why it is blocked
+tarhan capabilities list --format json        # stdout is ONLY json; notes go to stderr
+```
+
+Read this before assuming a capability exists. A record marked `blocked` or
+`planned` says *why* and what would unlock it, so "TARHAN cannot do X" is
+answerable without reading the source. Capability ids carry the spatial
+dimension and the time axis separately — `…1d.steady` and `…1d.transient` are
+different capabilities, and the roadmap's eventual "4D" is `3d.transient`.
+
+Two things matter when scripting it:
+
+- **stdout carries the result and nothing else.** Progress, notes, warnings and
+  the anvil feedback always go to stderr, in every format including `table`.
+  So `tarhan capabilities list --format json | jq` is safe.
+- **The exit status is the machine-readable half of the answer.** `0` success;
+  `2` bad input, including an unknown capability id; `3` the capability is
+  blocked or merely planned — the record still prints in full; `4` the solver
+  did not converge, which has no call site yet because it belongs to
+  `run solve`; `5` an internal bug. Do not grep the prose — it will be reworded.
+
+`tarhan demo` keeps its own older 0/1 contract and is untouched by the above.
 
 ## GPU: no at today's scale, an open question at 2D/3D scale
 

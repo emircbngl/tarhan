@@ -23,6 +23,10 @@ tarhan demo                 # zero-config: converged Cottrell reproduction
 tarhan demo --case diode    # flagship drift-diffusion diode: I-V + band diagram
 tarhan demo --show          # ...and open the plot window (interactive terminals)
 tarhan demo --save iv.png   # ...or write the plot to a file (CI, servers)
+
+tarhan capabilities list                 # what the engine can do, and what it cannot
+tarhan capabilities show <id>            # limits, measured evidence, or why it is blocked
+tarhan capabilities list --format json   # stdout is ONLY json; notes go to stderr
 pytest                      # run the Layer-0 validation catalog
 ```
 
