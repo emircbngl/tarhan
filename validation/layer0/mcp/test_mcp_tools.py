@@ -116,6 +116,15 @@ def test_formula_catalog_carries_honesty_tiers():
 
 
 def test_build_server_registers_all_tools():
-    pytest.importorskip("mcp", reason="pip install tarhan[mcp]")
+    # Guard on what the code actually imports, not on the top-level package.
+    # mcp 2.0.0 restructured and removed `mcp.server.fastmcp` — the reason
+    # pyproject pins mcp>=1.1,<2 — so an environment carrying 2.x satisfies
+    # importorskip("mcp"), does not skip, and then fails inside build_server
+    # with a SystemExit telling the reader to install an extra that is already
+    # installed. A skip guard naming a different module from the one under test
+    # is not a guard. Caught by fresh-clone verification, which installs only
+    # [dev] and therefore has no pin protecting it.
+    pytest.importorskip("mcp.server.fastmcp",
+                        reason="needs mcp 1.x: pip install 'tarhan[mcp]'")
     server = m.build_server()
     assert server is not None
