@@ -240,6 +240,18 @@ def build_mesh(points: Sequence[Point],
     near a junction. A guard that rejected them would contradict the reason the
     rest of the file is written the way it is.
     """
+    # A NaN tolerance disables every guard below in silence, because NaN loses
+    # all comparisons: ``abs(a2) <= nan`` and ``facet < -nan`` are both False,
+    # so a collinear triangle and a negative Voronoi weight walk straight
+    # through — and the negative facet is then clamped to zero, which is exactly
+    # the "do not clamp the weight" refused further down. A guard whose own
+    # tolerance can switch it off is not a guard.
+    if not (math.isfinite(shape_rtol) and shape_rtol > 0.0):
+        raise MeshError(
+            f"shape_rtol must be finite and positive, got {shape_rtol!r}; a "
+            "non-finite tolerance silently disables the degeneracy and "
+            "positivity checks rather than loosening them")
+
     pts = tuple((float(x), float(y)) for x, y in points)
     if len(pts) < 3:
         raise MeshError(f"a triangulation needs at least 3 nodes, got {len(pts)}")

@@ -221,6 +221,44 @@ def test_each_carrier_needs_its_own_sign_of_psi():
     assert np.abs(wrong_h).max() > 0.1 * holes.max()
 
 
+@pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf")])
+def test_a_bad_edge_coefficient_cannot_undo_the_geometry_guard(bad):
+    """mesh.py refuses negative weights; edge_coef must not smuggle them back.
+
+    The whole positivity argument rests on every off-diagonal being
+    non-positive, and ``mesh.py`` enforces that on the GEOMETRY by refusing a
+    negative Voronoi facet. But the assembled entry is ``coef * A_e/L_e *
+    B(...)``, so a negative coefficient reintroduces exactly what the geometry
+    guard exists to prevent — measured at +5.0e-01 on a unit square before this
+    check existed: a positive off-diagonal, no Z-matrix, no guarantee of
+    positive carrier densities. NaN was accepted too, and simply propagated.
+
+    Both assemblers are checked, because both took the coefficient and neither
+    looked at it.
+    """
+    mesh = square()
+    coef = np.full(len(mesh.edges), bad)
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        assemble_continuity(mesh, np.ones(4), np.zeros(4), carrier="hole",
+                            edge_coef=coef)
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        assemble_poisson(mesh, np.zeros(4), charge=np.zeros(4),
+                         dcharge_dpsi=np.zeros(4), edge_coef=coef)
+
+
+def test_a_zero_edge_coefficient_is_still_allowed():
+    """Zero is legitimate and must not be swept up with the refusals.
+
+    An inert edge is how a caller silences one without deleting it — the
+    single-edge flux test above relies on exactly that — so the guard is
+    non-negative rather than strictly positive.
+    """
+    mesh = square()
+    coef = np.zeros(len(mesh.edges))
+    assert assemble_continuity(mesh, np.ones(4), np.zeros(4), carrier="hole",
+                               edge_coef=coef) is not None
+
+
 def test_carrier_has_no_default_and_rejects_nonsense():
     """Omitting the carrier must be a TypeError, not a silent default.
 

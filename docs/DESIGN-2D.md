@@ -1,8 +1,13 @@
-# Extending TARHAN to 2D — a design, not an implementation
+# Extending TARHAN to 2D — the design, and what became of it
 
-Status: **proposal**. No 2D code exists in this repository today, and nothing
-here has been built or measured. Read it as a set of decisions to argue with
-before any of it is written.
+Status: **partly built**. Stages 2D-0, 2D-1, 2D-2 and 2D-3′ are implemented and
+validated against DEVSIM; 2D-3 and 2D-4 are blocked, for reasons recorded in §5.
+**The §5 table is the authority** on what is measured and what is not.
+
+This began as a proposal and its argument sections still read that way, on
+purpose: the reasoning behind each decision is worth more than a tidied account
+of the outcome. Where a decision turned out wrong — and several did — the
+correction sits next to it rather than replacing it.
 
 ## 0. Where we actually are
 
@@ -206,8 +211,15 @@ other stage, once the case has built it.
 Everything 2D-4 needed was built and each piece is tested: the node subdomain so
 carriers exist only in silicon, per-triangle facet shares so a material
 interface can be weighted, and the region-merge with its connectivity proof
-(2954 raw nodes to 2517, fusing only the two interfaces, single connected
-component). The MOSFET port fell over on the mesh itself.
+— on `testing/mos_2d.py`'s structure, 2539 raw nodes to 2517, fusing only the
+two interfaces, single connected component; on `gmsh_mos2d`'s, 2954 to 2847,
+107 pairs. The MOSFET port fell over on the mesh itself.
+
+(An earlier revision of this paragraph gave the second merge as "2954 to 2517",
+carrying the first mesh's result across to a mesh whose merge had never been
+counted, because `build_mesh` refused it before the count mattered. Two
+different meshes cannot merge to the same total; the number was copied, not
+measured, and it is corrected above. Caught in review by Codex.)
 
 `build_mesh` refuses `gmsh_mos2d`'s geometry: 22 of its 8192 interior edges have
 a negative Voronoi weight. The first suspicion was that merging three

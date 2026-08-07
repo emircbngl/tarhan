@@ -271,6 +271,39 @@ def test_duplicate_nodes_are_refused_relative_to_extent():
         build_mesh(pts, [(0, 1, 2), (0, 2, 3)])
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), 0.0, -1e-12])
+def test_a_tolerance_that_would_disable_the_guards_is_refused(bad):
+    """shape_rtol must be finite and positive, or the guards switch themselves off.
+
+    NaN is the dangerous one, because NaN loses every comparison: ``abs(a2) <=
+    nan`` and ``facet < -nan`` are both False, so a collinear triangle and a
+    negative Voronoi weight walk straight through — and the negative facet is
+    then clamped to zero, which is the one thing this module says in writing
+    must never happen.
+
+    Measured before the fix: the non-Delaunay kite below, correctly refused at
+    the default tolerance, was ACCEPTED with shape_rtol=nan and came back with
+    its facet clamped to 0. A guard whose own tolerance can disable it is not a
+    guard, so the tolerance is validated first now.
+    """
+    with pytest.raises(MeshError, match="finite and positive"):
+        build_mesh(SQUARE_PTS, SQUARE_TRIS, shape_rtol=bad)
+
+
+def test_the_kite_stays_refused_whatever_tolerance_is_offered():
+    """The specific case that slipped through: non-Delaunay, negative facet.
+
+    Refused at the default tolerance for the right reason, and refused with a
+    non-finite one for the new reason — never accepted.
+    """
+    pts = [(0.0, 0.0), (1.0, 0.0), (0.5, 0.2), (0.5, -0.2)]
+    tris = [(0, 1, 2), (0, 1, 3)]
+    with pytest.raises(MeshError, match="not Delaunay"):
+        build_mesh(pts, tris)
+    with pytest.raises(MeshError, match="finite and positive"):
+        build_mesh(pts, tris, shape_rtol=float("nan"))
+
+
 def test_non_manifold_edge_is_refused():
     """Three triangles on one edge is not a 2D mesh; say so rather than average."""
     pts = SQUARE_PTS + [(0.5, 2.0)]

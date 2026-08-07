@@ -216,6 +216,18 @@ def assemble_continuity(mesh: Mesh,
         raise ValueError(
             f"edge_coef must have one entry per edge ({len(mesh.edges)}), "
             f"got {coef.shape}")
+    # The geometry guard in mesh.py refuses a negative Voronoi weight precisely
+    # to keep every off-diagonal non-positive. A negative coefficient puts it
+    # straight back: the entry becomes +|coef| * B(...), the Z-matrix property
+    # is gone, and with it the guarantee of positive carrier densities —
+    # measured at +5.0e-01 on a unit square. NaN propagates instead, which is
+    # worse only in being harder to notice.
+    if not np.all(np.isfinite(coef)) or float(coef.min()) < 0.0:
+        raise ValueError(
+            "edge_coef must be finite and non-negative; a negative or NaN "
+            "coefficient reintroduces exactly the positive off-diagonal that "
+            "mesh.py refuses to let the geometry produce, so the matrix is no "
+            "longer an M-matrix and carrier positivity is no longer guaranteed")
 
     residual = np.zeros(mesh.n_nodes, dtype=float)
     rows: List[int] = []
@@ -361,6 +373,18 @@ def assemble_poisson(mesh: Mesh,
         raise ValueError(
             f"edge_coef must have one entry per edge ({len(mesh.edges)}), "
             f"got {coef.shape}")
+    # The geometry guard in mesh.py refuses a negative Voronoi weight precisely
+    # to keep every off-diagonal non-positive. A negative coefficient puts it
+    # straight back: the entry becomes +|coef| * B(...), the Z-matrix property
+    # is gone, and with it the guarantee of positive carrier densities —
+    # measured at +5.0e-01 on a unit square. NaN propagates instead, which is
+    # worse only in being harder to notice.
+    if not np.all(np.isfinite(coef)) or float(coef.min()) < 0.0:
+        raise ValueError(
+            "edge_coef must be finite and non-negative; a negative or NaN "
+            "coefficient reintroduces exactly the positive off-diagonal that "
+            "mesh.py refuses to let the geometry produce, so the matrix is no "
+            "longer an M-matrix and carrier positivity is no longer guaranteed")
 
     vol = node_volumes(mesh)
     residual = vol * q
