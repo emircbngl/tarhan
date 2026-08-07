@@ -10,6 +10,7 @@ kuruluş ilkesi #6).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import math
 import os
 import sys
@@ -33,6 +34,123 @@ def _capabilities_list(out: cliout.Output) -> int:
     out.note(f"{len(caps)} capabilities, {stuck} of them not runnable today. "
              "`tarhan capabilities show <id>` says why.")
     return cliout.EXIT_OK
+
+
+def _check_import(module: str):
+    """Import a dependency and report its version, or why it is not usable."""
+    try:
+        mod = __import__(module)
+    except Exception as exc:                              # noqa: BLE001
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, f"{module} {getattr(mod, '__version__', 'unknown version')}"
+
+
+def _check_registry():
+    caps = all_capabilities()
+    runnable = sum(c.runnable for c in caps)
+    return True, (f"{len(caps)} capabilities, {runnable} runnable, "
+                  f"{len(caps) - runnable} blocked or planned")
+
+
+def _check_evidence():
+    """Every validated claim must still name a test that exists.
+
+    An installed copy whose evidence points at deleted files is a copy whose
+    claims cannot be re-checked. In a wheel the validation tree is not shipped,
+    so absence there is expected and reported as such rather than as a fault.
+    """
+    import pathlib
+    repo = pathlib.Path(__file__).resolve().parents[2]
+    if not (repo / "validation").is_dir():
+        return None, "validation tree not present (expected in a wheel install)"
+    missing = [ev.test for cap in all_capabilities() for ev in cap.evidence
+               if not (repo / ev.test).exists()]
+    if missing:
+        return False, f"{len(missing)} evidence files missing, e.g. {missing[0]}"
+    total = sum(len(c.evidence) for c in all_capabilities())
+    return True, f"{total} evidence files present"
+
+
+@contextlib.contextmanager
+def _stdout_to_stderr():
+    """Hold the file descriptor, not just ``sys.stdout``.
+
+    DEVSIM prints a BLAS/UMFPACK banner from C at import time. That lands on
+    file descriptor 1 directly, so ``contextlib.redirect_stdout`` does not see
+    it and it appears in the middle of a ``--format json`` stream, breaking the
+    one promise this CLI makes to a machine consumer. Caught by running the new
+    doctor command through a pipe — a diagnostic banner is diagnostics, so it
+    goes where diagnostics go.
+    """
+    sys.stdout.flush()
+    saved = os.dup(1)
+    try:
+        os.dup2(2, 1)
+        yield
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
+
+
+def _check_devsim():
+    try:
+        with _stdout_to_stderr():
+            import devsim                                 # noqa: F401
+    except Exception:                                     # noqa: BLE001
+        return None, "not installed — cross-oracle tests will skip"
+    return True, "available for cross-oracle validation"
+
+
+#: (name, what-it-is, callable). A callable returns (True | False | None,
+#: detail); None means optional-and-absent, reported without failing the run.
+DOCTOR_CHECKS = (
+    ("numpy", "array kernel", lambda: _check_import("numpy")),
+    ("scipy", "sparse solver and integrators", lambda: _check_import("scipy")),
+    ("matplotlib", "plotting for the demos", lambda: _check_import("matplotlib")),
+    ("registry", "loading the capability records", _check_registry),
+    ("evidence", "checking every claim still names its test", _check_evidence),
+    ("devsim", "optional cross-oracle simulator", _check_devsim),
+)
+
+
+def _capabilities_doctor(out: cliout.Output) -> int:
+    """Bring the tools up, and say plainly whether they came up.
+
+    The bar counts completed checks. It is not a timer, and no path advances it
+    with elapsed time — the same rule the solver display follows, for the same
+    reason: a number that looks measured has to be measured.
+    """
+    from tarhan.forge import Forge
+
+    results = []
+    forge = Forge([name for name, _, _ in DOCTOR_CHECKS], out, style="boot",
+                  pin=False)
+    with forge:
+        for name, detail, check in DOCTOR_CHECKS:
+            forge.begin(name, detail)
+            forge.tick()
+            ok, said = check()
+            results.append((name, ok, said))
+            forge.finish(said)
+        broken = [n for n, ok, _ in results if ok is False]
+        if broken:
+            forge.failed(f"{len(broken)} of {len(results)} checks failed: "
+                         + ", ".join(broken))
+        else:
+            optional = sum(1 for _, ok, _ in results if ok is None)
+            forge.converged(
+                f"{len(results) - optional} checks passed"
+                + (f", {optional} optional not installed" if optional else ""))
+
+    if out.fmt != "table":
+        out.emit([{"check": n,
+                   "status": {True: "ok", False: "FAILED", None: "absent"}[ok],
+                   "detail": said}
+                  for n, ok, said in results],
+                 ("check", "status", "detail"))
+    return (cliout.EXIT_UNAVAILABLE
+            if any(ok is False for _, ok, _ in results) else cliout.EXIT_OK)
 
 
 def _capabilities_show(out: cliout.Output, capability_id: str) -> int:
@@ -243,6 +361,13 @@ def main(argv: list[str] | None = None) -> int:
         help="what the engine can actually do, and where it stops")
     cap_sub = p_cap.add_subparsers(dest="cap_command")
     cap_sub.add_parser("list", help="every capability and its status")
+    cap_sub.add_parser(
+        "doctor",
+        help="bring the tools up and check them — run this after installing",
+        description="Imports the dependencies, loads the capability registry "
+                    "and verifies every claim still names a test that exists. "
+                    "The progress bar counts completed checks, never elapsed "
+                    "time. Exits 3 if a required check fails.")
     p_show = cap_sub.add_parser(
         "show",
         help="one capability in full",
@@ -276,6 +401,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "capabilities":
             if args.cap_command == "list":
                 return _capabilities_list(out)
+            if args.cap_command == "doctor":
+                return _capabilities_doctor(out)
             if args.cap_command == "show":
                 return _capabilities_show(out, args.capability_id)
             p_cap.print_help()

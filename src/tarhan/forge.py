@@ -66,16 +66,27 @@ FULL_WIDTH = 76          # anvil, wordmark and the stage list all fit
 COMPACT_WIDTH = 46       # wordmark dropped, anvil and stage list kept
 # below COMPACT_WIDTH: a single status line and nothing else
 
-# The working indicator: the forge, shrunk to four cells.
+# The working indicator: a fixed seven-cell field where the hammer closes on a
+# stationary anvil and strikes it.
 #
-# A generic spinner would have been easier and would have looked like every
-# other CLI. These four cells keep the anvil on screen the whole time and let
-# the hammer strike it — raised, falling, contact, recovering. The anvil never
-# moves, so the eye reads the motion as a blow rather than a rotation, and the
-# spark appears on exactly one frame, so a spark still means metal was hit.
-FORGE_CELL = ("╱▂▄▂", "╲▂▄▂", "✦▂▄▂", "╲▂▄▂")
-FORGE_CELL_ASCII = ("/-=-", "\\-=-", "*-=-", "\\-=-")
+# Braille was tried first and rejected on the evidence. It packs 2x4 dots per
+# cell, so one line can carry four rows of vertical resolution — enough, in
+# principle, to draw a hammer arcing down. Rendered, it does not read as a
+# forge: at four dot-rows a filled silhouette becomes texture, and thinning it
+# out leaves shapes too sparse to name. Braille earns its keep on line plots,
+# not on small solid figures.
+#
+# What does read, on one line, is MOTION against something that does not move.
+# The anvil sits at the right and never shifts; the hammer closes from the left
+# over three frames, and the spark appears only where the two meet, so a spark
+# still means metal was hit. The field is a constant seven cells wide, so the
+# text after it never jitters as the hammer travels.
+FORGE_CELL = ("▚   ▄▆▄", " ▚  ▄▆▄", "  ▚✦▄▆▄", " ▚  ▄▆▄")
+FORGE_CELL_ASCII = ("\\   _-_", " \\  _-_", "  \\*_-_", " \\  _-_")
 STRIKE_CELL = 2
+
+#: Shown under the wordmark once the mark settles and the tools are loaded.
+READY = "READY TO FORGE"
 
 # Orbitron-inspired geometry drawn as terminal cells, because a CLI cannot pick
 # the user's font.
@@ -202,7 +213,8 @@ class Forge:
                  unicode: Optional[bool] = None,
                  animate: Optional[bool] = None,
                  pin: object = "auto",
-                 pin_after: float = PIN_AFTER_SECONDS) -> None:
+                 pin_after: float = PIN_AFTER_SECONDS,
+                 style: str = "indicator") -> None:
         self.out = out if out is not None else cliout.Output()
         self.stream = self.out.stderr
         self.stages: List[Stage] = [Stage(name) for name in stage_names]
@@ -222,6 +234,12 @@ class Forge:
         self._pin_after = pin_after
         self._pinned = False
         self._pin_rows = 0
+        # "indicator" is the one line a long solve wants. "boot" keeps the full
+        # mark on screen with the hammer working and a bar underneath — for the
+        # one moment where the wait IS the subject: bringing the tools up.
+        if style not in ("indicator", "boot"):
+            raise ValueError(f"style must be 'indicator' or 'boot', got {style!r}")
+        self.style = style
 
         tty = bool(getattr(self.stream, "isatty", lambda: False)())
         self.animate = (tty and not self.out.quiet) if animate is None else animate
@@ -475,12 +493,17 @@ class Forge:
         detail = (stage.detail if stage else "")[:room]
         return f"{cell} {self._paint(name, 'bold')}  {detail}  {tail}"
 
-    def _logo(self, width: int, frame: Optional[int] = None) -> List[str]:
+    def _logo(self, width: int, frame: Optional[int] = None,
+              subtitle: str = "") -> List[str]:
         """The mark. With ``frame``, the hammer is mid-swing; without it, at rest.
 
         At rest the hammer is gone entirely rather than parked above the anvil:
         a hammer frozen in the air reads as something stalled, which is the one
         impression this display must never give when nothing is wrong.
+
+        ``subtitle`` is set on the resting mark once everything is loaded. It
+        sits directly under the wordmark rather than under the whole block, so
+        it reads as part of the mark instead of as the first line of output.
         """
         if frame is None:
             rows, word_offset, hot_row = list(self._anvil), 0, None
@@ -492,14 +515,19 @@ class Forge:
             left = self._paint(row.ljust(31),
                                "reverse" if i == hot_row else "")
             word_index = i - word_offset
-            if width >= FULL_WIDTH and 0 <= word_index < len(self._wordmark):
+            if width < FULL_WIDTH:
+                lines.append(left)
+            elif 0 <= word_index < len(self._wordmark):
                 word = self._paint(self._wordmark[word_index], "bold")
                 lines.append(f"{left}  {word}")
+            elif word_index == len(self._wordmark) and subtitle:
+                lines.append(f"{left}  {self._paint(subtitle, 'dim')}")
             else:
                 lines.append(left)
         return lines
 
-    def intro(self, strikes: int = 2, pace: float = 0.09) -> None:
+    def intro(self, strikes: int = 2, pace: float = 0.09,
+              subtitle: str = READY) -> None:
         """Play the forge once, then leave the anvil and the wordmark standing.
 
         This is the one place a timer is the honest driver. A title sequence
@@ -519,7 +547,8 @@ class Forge:
         for beat in range(strikes * len(self._hammer)):
             self._blit(self._logo(width, frame=beat % len(self._hammer)))
             time.sleep(max(0.0, pace))
-        self._blit(self._logo(width))   # at rest: anvil and wordmark only
+        # At rest: anvil, wordmark, and the line that says the tools are up.
+        self._blit(self._logo(width, subtitle=subtitle))
         self._drawn = 0                 # printed for good; the run goes below
 
     def _blit(self, lines: List[str]) -> None:
@@ -554,6 +583,28 @@ class Forge:
             detail = stage.detail[: max(0, width - 24)]
             lines.append(f"  {mark} {self._paint(stage.name.ljust(10), style)} "
                          f"{self._paint(timing, 'dim')} {detail}")
+        return lines
+
+    def _boot_block(self, width: int) -> List[str]:
+        """The mark with the hammer working, over a bar that counts real checks.
+
+        The animation loops for as long as the work takes and no longer: each
+        frame is drawn when a check completes, so the hammer is a report on
+        progress rather than a decoration laid over it. If a check hangs, the
+        hammer hangs with it — which is the honest thing for it to do.
+        """
+        if width < COMPACT_WIDTH:
+            return [self._status_line()]
+        lines = self._logo(width, frame=self._frame % len(self._hammer))
+        lines.append("")
+        stage = self._current
+        label = stage.name if stage else "STARTING"
+        detail = stage.detail if stage else ""
+        done = sum(1 for s in self.stages if s.done)
+        lines.append(f"  {self._bar(min(40, width - 24))}  "
+                     f"{self._paint(f'{done}/{len(self.stages)}', 'dim')}  "
+                     f"{self._paint(label, 'bold')}")
+        lines.append(f"  {self._paint(detail[:max(0, width - 4)], 'dim')}")
         return lines
 
     def _summary(self, width: int) -> List[str]:
@@ -603,10 +654,21 @@ class Forge:
             # Give the row back before the closing block, so the summary lands
             # in ordinary scrolling output and stays readable afterwards.
             self._release_pin()
-            self._blit(self._summary(width))
+            if self.style == "boot":
+                # Boot ends the way the intro does: the hammer comes to rest
+                # and the mark stands with the line that says the tools are up.
+                subtitle = "" if self._failed else READY
+                self._blit(self._logo(width, subtitle=subtitle)
+                           + [""] + self._summary(width))
+            else:
+                self._blit(self._summary(width))
             # The summary is the record of the run. Nothing may overwrite it,
             # and whatever is printed next belongs below it.
             self._drawn = 0
+            return
+
+        if self.style == "boot":
+            self._blit(self._boot_block(width))
             return
 
         self._maybe_pin()

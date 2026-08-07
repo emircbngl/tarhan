@@ -90,6 +90,40 @@ def test_a_piped_table_has_no_colour_by_default():
     assert "\033[" not in proc.stdout
 
 
+def test_doctor_json_survives_a_dependency_that_prints_from_c():
+    """The regression that made this test exist.
+
+    DEVSIM prints a BLAS/UMFPACK banner at import time from C, straight onto
+    file descriptor 1. ``contextlib.redirect_stdout`` cannot see it, so it
+    landed in the middle of the JSON and ``json.loads`` failed on a stream that
+    looked fine to anyone reading it by eye. The fix redirects the descriptor;
+    this asserts the outcome rather than the fix, so any future chatty import
+    is caught the same way.
+    """
+    proc = run("--format", "json", "capabilities", "doctor")
+    payload = json.loads(proc.stdout)
+    names = [row["check"] for row in payload]
+    assert {"numpy", "scipy", "registry", "evidence"} <= set(names)
+    assert all(row["status"] in ("ok", "FAILED", "absent") for row in payload)
+
+
+def test_doctor_reports_a_healthy_install_as_zero():
+    proc = run("capabilities", "doctor")
+    assert proc.returncode == cliout.EXIT_OK
+    assert proc.stdout == "", "table mode puts the whole report on stderr"
+
+
+def test_doctor_counts_checks_and_not_seconds():
+    """The bar is a count. Nothing in the doctor path may advance it with time."""
+    from tarhan import cli
+
+    assert len(cli.DOCTOR_CHECKS) >= 4
+    for name, detail, check in cli.DOCTOR_CHECKS:
+        assert name and detail and callable(check)
+    ok, said = cli._check_registry()
+    assert ok is True and "capabilities" in said
+
+
 # --- exit codes -------------------------------------------------------------
 
 @pytest.mark.parametrize("capability_id,expected", [

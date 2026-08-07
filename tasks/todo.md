@@ -82,6 +82,36 @@ olması.
 `pty` modül düzeyinde import ediliyordu — Windows'ta bütün dosyanın toplanmasını
 patlatırdı. İkincisini test yazarken değil, testi CI gözüyle okurken gördüm.
 
+## Terminal UI — üç kalem (2026-08-07)
+
+- [x] **Sol alttaki gösterge okunmuyordu.** Önce braille (U+2800, hücre başına
+      2×4 nokta) denendi ve **ölçülerek reddedildi**: dört nokta-satırında dolgu
+      silüet dokuya dönüşüyor, seyreltince de adlandırılamaz hâle geliyor.
+      Braille çizgi-grafikte iyi, küçük dolu figürde değil. Çalışan şey hareket:
+      sabit bir örse (`▄▆▄`) soldan yaklaşan çekiç, temas karesinde kıvılcım.
+      Alan **sabit yedi hücre**, böylece çekiç ilerlerken metin kaymıyor.
+- [x] **`READY TO FORGE` alt başlığı**, wordmark'ın hemen altında — bloğun
+      altında değil, ki markanın parçası gibi okunsun. Yalnız dinlenme hâlinde;
+      animasyonlu kareler taşımıyor.
+- [x] **`tarhan capabilities doctor`** — kurulumdan sonra çalıştırılacak komut.
+      Örs döverken çubuk **gerçek kontrolleri** sayıyor (numpy/scipy/matplotlib
+      import, registry yükleme, her kanıt dosyasının varlığı, opsiyonel DEVSIM),
+      bitince `READY TO FORGE`. Eksik varsa 3 ile çıkıyor ve neyin eksik
+      olduğunu söylüyor.
+      **Kısıt:** `pip install` sırasında animasyon oynatılamaz — wheel kurulumu
+      hiçbir kod çalıştırmaz. Bu, isteğin yapılabilir en yakın karşılığı.
+
+**Yol boyunca yakalanan kusur:** doktor komutu JSON sözleşmesini kırıyordu.
+DEVSIM import edilirken C seviyesinden fd 1'e banner basıyor;
+`contextlib.redirect_stdout` bunu göremez, dolayısıyla `--format json`
+çıktısının ortasına düşüp `json.loads`'ı patlatıyordu. `os.dup2` ile tanıtıcı
+seviyesinde stderr'e yönlendirildi ve teste bağlandı.
+
+**Prototip artık ikiz değil.** `/private/tmp/tarhan-terminal-prototype/` altındaki
+demo kendi kopyasını taşıyordu ve bir gün içinde paketten ayrıştı — son elle
+taşıma sessizce başarısız olup demoyu eski animasyonu gösterir hâlde bıraktı.
+Şimdi gerçek `tarhan.forge`'u import eden ince bir sürücü. Tek uygulama.
+
 ## Bu dilimde ek olarak yapılanlar
 
 - `AGENTS.md`: yeni komut ve çıkış kodu sözleşmesi belgelendi. Ayrıca oradaki

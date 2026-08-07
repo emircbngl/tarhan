@@ -20,7 +20,8 @@ import time
 import pytest
 
 from tarhan import cliout
-from tarhan.forge import COMPACT_WIDTH, FORGE_CELL, FORGE_CELL_ASCII, Forge
+from tarhan.forge import (COMPACT_WIDTH, FORGE_CELL, FORGE_CELL_ASCII, READY,
+                          Forge)
 
 
 class FakeTTY(io.StringIO):
@@ -334,16 +335,37 @@ def test_a_console_without_unicode_gets_ascii_art():
     assert any(cell in written for cell in FORGE_CELL_ASCII)
 
 
-def test_the_forge_cell_is_four_frames_with_one_strike():
-    """The anvil is on screen the whole time and the spark marks contact.
+def test_the_forge_cell_is_a_hammer_closing_on_a_fixed_anvil():
+    """The identity, asserted so a future refactor cannot quietly drop it.
 
-    A generic spinner would have been easier; this is the identity, so it is
-    asserted rather than left for a future refactor to quietly drop.
+    Three properties carry it: the anvil never moves (so the motion reads as
+    the hammer, not a rotation), the spark appears on exactly one frame (so a
+    spark means contact), and every frame is the same width (so the text after
+    it does not jitter as the hammer travels).
     """
-    assert len(FORGE_CELL) == 4
-    assert sum("✦" in cell for cell in FORGE_CELL) == 1
-    assert {cell[1:] for cell in FORGE_CELL} == {"▂▄▂"}, \
-        "the anvil must not move between frames"
+    for cells in (FORGE_CELL, FORGE_CELL_ASCII):
+        assert len(cells) == 4
+        assert len({len(c) for c in cells}) == 1, "frames differ in width"
+        anvils = {c[-3:] for c in cells}
+        assert len(anvils) == 1, f"the anvil moved between frames: {anvils}"
+    assert sum("✦" in c for c in FORGE_CELL) == 1
+    assert sum("*" in c for c in FORGE_CELL_ASCII) == 1
+    # The hammer must be in a different place between approach frames, or there
+    # is no motion to see — which was the complaint that produced this design.
+    assert FORGE_CELL[0] != FORGE_CELL[1]
+
+
+def test_the_resting_mark_carries_the_ready_subtitle():
+    """The line saying the tools are up sits under the wordmark, not under the
+    whole block, so it reads as part of the mark."""
+    forge, _ = _tty_forge()
+    lines = forge._logo(100, subtitle=READY)
+    joined = "\n".join(lines)
+    assert READY in joined
+    assert joined.index("█████   ███") < joined.index(READY), \
+        "the subtitle must sit below the wordmark, not above it"
+    # And it is absent unless asked for: the animated frames must not carry it.
+    assert not any(READY in line for line in forge._logo(100, frame=0))
 
 
 def test_a_narrow_terminal_drops_the_logo(monkeypatch):
