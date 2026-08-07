@@ -167,6 +167,40 @@ REGISTRY: Tuple[Capability, ...] = (
     ),
     Capability(
         domain="semiconductor",
+        family="pn.drift-diffusion",
+        dimension=1,
+        time="transient",
+        status="planned",
+        inputs=("doping profile", "grid", "bias waveform", "SRH lifetimes"),
+        produces=("time-resolved psi, n, p", "terminal current transient"),
+        reason="No device model in this repository has a time derivative. "
+               "models/pn1d.py solves the steady state only; the transient "
+               "primitive in numerics/transient.py is validated on stiff "
+               "chemical kinetics and has never been coupled to a device.",
+        needs="dn/dt and dp/dt in the continuity equations, displacement "
+              "current at the contacts, and an oracle — DEVSIM's transient "
+              "examples, or the analytic anchors of diode reverse recovery. "
+              "assemble.node_volumes() already supplies the mass term.",
+    ),
+    Capability(
+        domain="semiconductor",
+        family="pn.drift-diffusion",
+        dimension=2,
+        time="transient",
+        status="planned",
+        inputs=("triangular mesh", "net doping", "contacts", "bias waveform"),
+        produces=("time-resolved fields on the mesh",
+                  "contact current transients"),
+        reason="Follows the 1D transient stage rather than preceding it. The "
+               "spatial operator already exists in numerics/assemble.py; what "
+               "is missing is the time coupling, and it is worth getting wrong "
+               "first in 1D, where the steady state is already validated to "
+               "0.57 microvolt and a discrepancy has one fewer place to hide.",
+        needs="The 1D transient capability, then the same mass term on the box "
+              "mesh.",
+    ),
+    Capability(
+        domain="semiconductor",
         family="mos.capacitance",
         dimension=2,
         time="ac",
