@@ -5,8 +5,10 @@
 # kendini pre-alpha ilan ettiği sürece SemVer'in "API kırılabilir" aralığı doğru
 # olan iddiadır. Kırıcı değişiklikler CHANGELOG'da açıkça listelidir.
 #
-# identifiers listesindeki version DOI'ler sürüme özeldir; v0.2.0'ınki Zenodo
-# arşivi oluştuktan SONRA eklenir (bu dosya kısa bir süre için o DOI'siz kalır).
+# identifiers listesindeki version DOI'ler sürüme özeldir ve her biri KENDİ
+# lisansıyla dondurulmuştur: v0.1.0 arşivi AGPL-3.0-or-later, v0.2.0 arşivi
+# Apache-2.0'dır. Aşağıdaki ``license:`` alanı yalnızca güncel sürümü tarif eder;
+# eski bir version DOI'yi atıflayan biri o arşivin kendi lisansına bakmalıdır.
 # Üstteki ``doi:`` alanı concept DOI'dir: her zaman en son sürüme çözülür ve
 # hiçbir sürümde değişmez — atıf verecek biri için doğru varsayılan odur.
 cff-version: 1.2.0
@@ -26,8 +28,11 @@ identifiers:
     value: 10.5281/zenodo.21761218
     description: "Concept DOI — resolves to the latest version"
   - type: doi
+    value: 10.5281/zenodo.21842087
+    description: "Version DOI — v0.2.0 (Apache-2.0)"
+  - type: doi
     value: 10.5281/zenodo.21761219
-    description: "Version DOI — v0.1.0"
+    description: "Version DOI — v0.1.0 (AGPL-3.0-or-later)"
 abstract: >-
   Physics-first, extensible materials simulator: galvanic cells, hydrogen fuel
   cells and semiconductor devices on one charged-species transport kernel.
