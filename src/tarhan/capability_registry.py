@@ -190,7 +190,8 @@ REGISTRY: Tuple[Capability, ...] = (
             Evidence("with n and p as state variables Poisson is linear, so "
                      "one tridiagonal solve replaces the Newton loop",
                      "the linear solve reproduces the Newton potential to "
-                     "8.62e-12 at equilibrium and 8.42e-11 at 0.30 V",
+                     "1.2e-11 relative on a 27.6-thermal-volt span, worst case "
+                     "across macOS, ubuntu and windows",
                      f"{_V}/semiconductor/test_pn1d_transient.py"),
             Evidence("a perturbed state relaxes back to the steady solution",
                      "a 5% perturbation decays from 1.553e-1 to 7.61e-8 over "

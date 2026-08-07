@@ -50,33 +50,53 @@ def _pieces(dev, v):
 
 # --- the fixed point ------------------------------------------------------
 
-@pytest.mark.parametrize("v,bound", [(0.0, 1e-11), (0.30, 1e-11)])
-def test_the_steady_solution_is_a_fixed_point_of_the_transient_rhs(dev, v, bound):
+#: Every bound in this file is set from what a DEFECT would produce, not from
+#: what one machine happened to measure. That distinction cost a red CI: the
+#: Poisson check was first bounded at 1e-10, three digits above the 8.62e-12
+#: seen on the author's macOS box — and ubuntu produced 1.624e-10 and windows
+#: 1.570e-10 for the same computation, because a different LAPACK rounds the
+#: tridiagonal solve differently. Nothing was wrong with the physics; the
+#: tolerance had been calibrated to one platform's arithmetic.
+#:
+#: So these are relative to the scale of the quantity, and chosen with orders of
+#: magnitude of headroom over the observed cross-platform spread while staying
+#: far below anything a real error could reach. A flipped sign, a missing 1/h̄ or
+#: a broken reduction gives O(1), not O(1e-9).
+FIXED_POINT_BOUND = 1e-9        # observed 1.6e-13 … 3.7e-13
+POISSON_REL_BOUND = 1e-8        # observed 6.2e-13 … 1.2e-11 relative
+
+
+@pytest.mark.parametrize("v", [0.0, 0.30])
+def test_the_steady_solution_is_a_fixed_point_of_the_transient_rhs(dev, v):
     """Measured max|dn̂/dt̂| = 1.59e-13 at equilibrium and 3.69e-13 at 0.30 V.
 
-    The bound sits well above those and far below anything a real defect could
-    produce: a flipped sign, a missing 1/h̄, or the wrong Bernoulli argument
-    would land many orders of magnitude higher, not at 1e-13. The floor is the
-    Gummel tolerance (1e-9 on ψ̂) rather than machine epsilon, which is why this
-    is not asserted at 1e-16.
+    A flipped sign, a missing 1/h̄, or the wrong Bernoulli argument would land
+    many orders of magnitude higher, not at 1e-13. The floor is the Gummel
+    tolerance (1e-9 on ψ̂) rather than machine epsilon, which is why this is not
+    asserted at 1e-16.
     """
     _, x, y, psi_l, psi_r, contacts = _pieces(dev, v)
     r = transient_rhs(dev, x, y, psi_l, psi_r, contacts)
-    assert np.max(np.abs(r)) < bound
+    assert np.max(np.abs(r)) < FIXED_POINT_BOUND
 
 
-@pytest.mark.parametrize("v,bound", [(0.0, 1e-10), (0.30, 1e-9)])
-def test_the_linear_poisson_reproduces_the_newton_solution(dev, v, bound):
+@pytest.mark.parametrize("v", [0.0, 0.30])
+def test_the_linear_poisson_reproduces_the_newton_solution(dev, v):
     """The reduction argument, put on trial.
 
     The transient formulation claims that with n̂ and p̂ as state variables the
     charge carries no ψ̂, so Poisson is linear and one tridiagonal solve replaces
-    the Newton loop. If that were wrong the two would disagree. Measured:
-    8.62e-12 at equilibrium, 8.42e-11 at 0.30 V.
+    the Newton loop. If that were wrong the two would disagree by something you
+    could see, not by a rounding difference.
+
+    Measured absolute differences on a ψ̂ span of ~27.6 thermal volts: 8.62e-12
+    (macOS), 1.624e-10 (ubuntu), 1.570e-10 (windows) at equilibrium. Compared
+    relative to max|ψ̂| so the assertion means the same thing on each.
     """
     st, x, _, psi_l, psi_r, _ = _pieces(dev, v)
     psi = _poisson_linear(dev, x, st["n_hat"], st["p_hat"], psi_l, psi_r)
-    assert np.max(np.abs(psi - st["psi"])) < bound
+    scale = float(np.max(np.abs(st["psi"])))
+    assert np.max(np.abs(psi - st["psi"])) / scale < POISSON_REL_BOUND
 
 
 def test_starting_at_the_steady_state_the_integrator_does_not_wander(dev):

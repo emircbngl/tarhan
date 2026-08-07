@@ -1,5 +1,22 @@
 # Dersler
 
+## 2026-08-07 — Tek makinede ölçülen sayı, tolerans değildir
+
+Yeni transient testine `1e-10` eşiği koydum; kendi makinemde ölçüm `8.62e-12`
+idi, üç basamak pay bıraktığımı sanıyordum. CI kırmızı döndü: **ubuntu 1.624e-10,
+windows 1.570e-10** — aynı hesap, farklı LAPACK, tridiagonal çözümde farklı
+yuvarlama yolu. Fizikte hiçbir sorun yoktu; kusur toleranstaydı.
+
+**Kural.** Toleransı ölçtüğün sayıya göre değil, **gerçek bir kusurun neye
+benzeyeceğine** göre kur. İşaret hatası, eksik bir `1/h̄` ya da yanlış Bernoulli
+argümanı O(1) verir; o hâlde eşik 1e-9 olabilir ve hem platform yuvarlamasının
+üç basamak üstünde durur hem de gerçek kusurun dokuz basamak altında kalır.
+Mutlak yerine **büyüklüğün ölçeğine göre bağıl** yaz, ki iddia her platformda
+aynı şeyi söylesin.
+
+Bir de: ölçümü tek platformdan raporlama. Kanıt dizesine "worst case across
+macOS, ubuntu ve windows" yazmak, sayının nereden geldiğini görünür kılar.
+
 ## 2026-08-07 — `cp` ile geri alma, bayat `.pyc`'yi taze gösterebilir
 
 Bir mutasyon testinde dosyayı `cp` ile geri aldım; kaynakta doğru değer
