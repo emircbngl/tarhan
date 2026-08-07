@@ -159,6 +159,89 @@ def test_the_closing_summary_does_not_reprint_the_mark():
     assert "CONVERGED" in summary
 
 
+# --- pinning the indicator to the bottom row -------------------------------
+
+def test_pinning_reserves_the_last_row_and_always_gives_it_back():
+    """DECSTBM is borrowed state on somebody else's terminal.
+
+    Setting a scroll region is the only way to keep a line fixed while output
+    scrolls past it. The danger is not setting it — it is failing to reset it,
+    which leaves the user with a terminal that needs `reset`. So the assertion
+    that matters is not "it pinned" but "it un-pinned".
+    """
+    forge, out = _tty_forge(pin=True)
+    with forge:
+        forge.begin("MESH", "reading nodes")
+        forge.tick()
+        forge.converged("done")
+    written = out.stderr.getvalue()
+    assert re.search(r"\x1b\[1;\d+r", written), "no scroll region was set"
+    assert "\x1b[r" in written, "the scroll region was never reset"
+    assert written.rindex("\x1b[r") > written.index("\x1b[1;"), \
+        "the region must be released after it is set, not before"
+
+
+def test_the_region_is_released_even_when_the_body_raises():
+    forge, out = _tty_forge(pin=True)
+    with pytest.raises(RuntimeError):
+        with forge:
+            forge.begin("MESH", "reading nodes")
+            forge.tick()
+            raise RuntimeError("solver exploded")
+    assert "\x1b[r" in out.stderr.getvalue()
+
+
+def test_a_short_run_never_touches_the_scroll_region():
+    """The cost of pinning is only worth paying when output actually scrolls.
+
+    A solve that finishes before the threshold gets the in-place indicator and
+    leaves the terminal's region alone, so the one unrecoverable failure mode —
+    SIGKILL before the reset — is not risked for nothing.
+    """
+    forge, out = _tty_forge(pin="auto", pin_after=1000.0)
+    with forge:
+        forge.begin("MESH", "reading nodes")
+        forge.tick()
+        forge.converged("done")
+    assert "\x1b[1;" not in out.stderr.getvalue()
+    assert forge._pinned is False
+
+
+def test_pinning_can_be_refused_outright():
+    forge, out = _tty_forge(pin=False)
+    with forge:
+        forge.begin("MESH", "reading nodes")
+        forge.tick()
+        forge.converged("done")
+    assert "\x1b[1;" not in out.stderr.getvalue()
+
+
+def test_a_pinned_indicator_is_drawn_on_the_reserved_row():
+    forge, out = _tty_forge(pin=True)
+    with forge:
+        forge.begin("SOLVE", "newton")
+        forge.tick()
+    written = out.stderr.getvalue()
+    rows = forge._pin_rows
+    assert f"\x1b[{rows};1H" in written, "the indicator never addressed the row"
+    assert "\x1b7" in written and "\x1b8" in written, \
+        "the cursor must be saved and restored around the pinned write"
+    assert written.count("\x1b7") == written.count("\x1b8")
+
+
+def test_a_logged_line_scrolls_above_a_pinned_indicator():
+    forge, out = _tty_forge(pin=True)
+    with forge:
+        forge.begin("SOLVE", "newton")
+        forge.log("  note: damping engaged")
+        forge.converged("done")
+    written = out.stderr.getvalue()
+    assert written.count("note: damping engaged") == 1
+    # Inside a scroll region the text scrolls by itself; nothing walks the
+    # cursor back over it, which is what would erase it.
+    assert "\x1b[1A" not in written.split("note: damping engaged")[1][:20]
+
+
 # --- 2. progress is stages, never a clock ----------------------------------
 
 def test_progress_does_not_move_with_time():

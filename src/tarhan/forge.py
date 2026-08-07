@@ -47,6 +47,20 @@ ESC = "\x1b["
 HIDE_CURSOR = f"{ESC}?25l"
 SHOW_CURSOR = f"{ESC}?25h"
 ERASE_LINE = f"{ESC}2K"
+SAVE_CURSOR = "\x1b7"
+RESTORE_CURSOR = "\x1b8"
+RESET_REGION = f"{ESC}r"
+
+#: How long a run must last before the indicator is pinned to the bottom row.
+#:
+#: Pinning uses DECSTBM, which sets a scrolling region on the user's terminal.
+#: Everything that can go wrong with it is recoverable and handled — resize,
+#: Ctrl-C, SIGTERM, an exception, a normal exit — except SIGKILL, which cannot
+#: be caught and would leave the region set until the user runs `reset`. That
+#: is a small, real cost, so it is only paid where it buys something: a run long
+#: enough that output scrolls past and the indicator would otherwise scroll away
+#: with it. A three-second solve does not need pinning and does not risk it.
+PIN_AFTER_SECONDS = 3.0
 
 FULL_WIDTH = 76          # anvil, wordmark and the stage list all fit
 COMPACT_WIDTH = 46       # wordmark dropped, anvil and stage list kept
@@ -186,7 +200,9 @@ class Forge:
     def __init__(self, stage_names: Sequence[str],
                  out: Optional[cliout.Output] = None,
                  unicode: Optional[bool] = None,
-                 animate: Optional[bool] = None) -> None:
+                 animate: Optional[bool] = None,
+                 pin: object = "auto",
+                 pin_after: float = PIN_AFTER_SECONDS) -> None:
         self.out = out if out is not None else cliout.Output()
         self.stream = self.out.stderr
         self.stages: List[Stage] = [Stage(name) for name in stage_names]
@@ -200,6 +216,12 @@ class Forge:
         self._failed = False
         self._restored = False
         self._last_logged: Optional[Stage] = None
+        # "auto" pins once the run is long enough to need it; True pins from the
+        # first frame; anything falsy never touches the terminal's scroll region.
+        self._pin_mode = pin
+        self._pin_after = pin_after
+        self._pinned = False
+        self._pin_rows = 0
 
         tty = bool(getattr(self.stream, "isatty", lambda: False)())
         self.animate = (tty and not self.out.quiet) if animate is None else animate
@@ -255,11 +277,75 @@ class Forge:
             except (ValueError, OSError):
                 pass          # not the main thread, or the platform refuses
 
+        # A resize moves the bottom row, and a scroll region measured against
+        # the old height would pin the indicator to a line that is no longer
+        # the last one — or worse, leave a band of the screen unusable.
+        winch = getattr(signal, "SIGWINCH", None)
+        if winch is not None:
+            def on_resize(_signum, _frame):
+                if self._pinned:
+                    self._engage_pin()
+            try:
+                signal.signal(winch, on_resize)
+            except (ValueError, OSError):
+                pass
+
+    # --- pinning the indicator to the bottom row --------------------------
+
+    def _engage_pin(self) -> None:
+        """Reserve the last row with DECSTBM so output scrolls above it."""
+        size = shutil.get_terminal_size((80, 24))
+        rows = max(3, size.lines)
+        self._pin_rows = rows
+        # Set the scrolling region to everything but the last row, then put the
+        # cursor inside it. Nothing is cleared: the region only changes where
+        # subsequent scrolling happens.
+        self.stream.write(f"{ESC}1;{rows - 1}r{ESC}{rows - 1};1H")
+        self.stream.flush()
+        self._pinned = True
+
+    def _release_pin(self) -> None:
+        if not self._pinned:
+            return
+        self._pinned = False
+        try:
+            # Reset the region FIRST, so that even if the writes below fail the
+            # user's terminal is already usable again.
+            self.stream.write(RESET_REGION)
+            self.stream.write(f"{ESC}{self._pin_rows};1H{ERASE_LINE}")
+            self.stream.flush()
+        except (ValueError, OSError):
+            pass
+
+    def _maybe_pin(self) -> None:
+        if self._pinned or not self.animate or not self._pin_mode:
+            return
+        if self._pin_mode == "auto" and \
+                time.monotonic() - self._started < self._pin_after:
+            return
+        if shutil.get_terminal_size((80, 24)).lines < 6:
+            return                       # too short to give a row away
+        # Clear the in-place indicator before it becomes a pinned one, or the
+        # line drawn a moment ago is left behind as a duplicate.
+        if self._drawn:
+            self.stream.write(f"{ESC}{self._drawn}A{ERASE_LINE}")
+            self._drawn = 0
+        self._engage_pin()
+
+    def _draw_pinned(self, text: str) -> None:
+        self.stream.write(
+            f"{SAVE_CURSOR}{ESC}{self._pin_rows};1H{ERASE_LINE}{text}"
+            f"{RESTORE_CURSOR}")
+        self.stream.flush()
+
     def _restore(self) -> None:
         if self._restored:
             return
         self._restored = True
         if self.animate:
+            # Order matters: a terminal left with a scroll region is far more
+            # annoying than one left with a hidden cursor, so it goes first.
+            self._release_pin()
             try:
                 self.stream.write(SHOW_CURSOR)
                 self.stream.flush()
@@ -323,6 +409,14 @@ class Forge:
         if not self.animate:
             self.stream.write(text + "\n")
             self.stream.flush()
+            return
+        if self._pinned:
+            # Inside the scroll region an ordinary write scrolls the text up on
+            # its own; the reserved row does not move, so there is nothing to
+            # redraw except the indicator's contents.
+            self.stream.write(ERASE_LINE + text + "\n")
+            self.stream.flush()
+            self._render()
             return
         out = []
         if self._drawn:
@@ -505,12 +599,21 @@ class Forge:
             return
 
         width = shutil.get_terminal_size((80, 24)).columns
-        self._blit(self._summary(width) if self._final
-                   else [self._indicator(width)])
         if self._final:
+            # Give the row back before the closing block, so the summary lands
+            # in ordinary scrolling output and stays readable afterwards.
+            self._release_pin()
+            self._blit(self._summary(width))
             # The summary is the record of the run. Nothing may overwrite it,
             # and whatever is printed next belongs below it.
             self._drawn = 0
+            return
+
+        self._maybe_pin()
+        if self._pinned:
+            self._draw_pinned(self._indicator(width))
+        else:
+            self._blit([self._indicator(width)])
 
     def _plain_line(self) -> str:
         if self._final:
