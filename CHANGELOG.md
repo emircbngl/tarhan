@@ -51,7 +51,8 @@ for.
 - `models/pn2d.py`: `PNDiode2D` — equilibrium and biased solves, `iv_sweep`,
   `contact_current`. Contacts are validated non-empty, in range, disjoint, and
   integer-valued *before* casting: a node listed in two contacts made the answer
-  depend on dictionary insertion order (a measured 19-volt swing on one device),
+  depend on dictionary insertion order (node 0 landed at −13.82 or +5.50 thermal
+  volts on the same device, purely by swapping two dictionary keys),
   and `0.9` quietly becoming node `0` reports currents for an electrode that is
   not where the caller thinks it is.
 - Validation stages **2D-0, 2D-1, 2D-2 and 2D-3′**, each against DEVSIM on
