@@ -155,56 +155,18 @@ def test_exit_codes_are_the_documented_numbers():
             cliout.EXIT_NO_CONVERGENCE, cliout.EXIT_INTERNAL) == (0, 2, 3, 4, 5)
 
 
-# --- TUI-0: present for a human, absent for a pipe -------------------------
+# --- the anvil never reaches a pipe ---------------------------------------
 
-def test_no_anvil_feedback_when_stderr_is_a_pipe():
-    """Every run in this file is piped, so the glyphs must never appear."""
+def test_no_forge_glyph_when_stderr_is_a_pipe():
+    """Every run in this file is piped, so the display must be invisible.
+
+    The Forge display itself is tested in test_forge.py; this asserts the one
+    thing the CLI contract owns — that nothing decorative escapes into a stream
+    something might read.
+    """
     proc = run("capabilities", "list")
-    for glyph in ("⟑", "⟒", "✷"):
+    for glyph in ("\u2571\u2582\u2584\u2582", "\u2726", "\u2588"):
         assert glyph not in proc.stdout and glyph not in proc.stderr
-
-
-def test_feedback_is_off_for_a_pipe_and_on_for_a_terminal():
-    class FakeTTY(io.StringIO):
-        def isatty(self):
-            return True
-
-    piped = cliout.Feedback(cliout.Output(stderr=io.StringIO()))
-    assert piped.enabled is False
-
-    out = cliout.Output(color="always", stderr=FakeTTY())
-    live = cliout.Feedback(out)
-    assert live.enabled is True
-    live.stage("assembling mesh")
-    live.done("converged")
-    written = out.stderr.getvalue()
-    assert "assembling mesh" in written and "converged" in written
-
-
-def test_feedback_falls_back_to_ascii_when_glyphs_cannot_be_encoded():
-    """The Windows lesson: a cosmetic glyph must never crash a run."""
-    class AsciiTTY(io.StringIO):
-        encoding = "ascii"
-
-        def isatty(self):
-            return True
-
-    out = cliout.Output(stderr=AsciiTTY())
-    fb = cliout.Feedback(out)
-    fb.stage("solving Poisson")
-    text = out.stderr.getvalue()
-    assert "solving Poisson" in text
-    assert "⟑" not in text
-    text.encode("ascii")            # raises if a glyph slipped through
-
-
-def test_quiet_disables_the_feedback_too():
-    class FakeTTY(io.StringIO):
-        def isatty(self):
-            return True
-
-    fb = cliout.Feedback(cliout.Output(quiet=True, stderr=FakeTTY()))
-    assert fb.enabled is False
 
 
 # --- the guard that keeps prose off the machine stream ---------------------

@@ -44,17 +44,10 @@ EXIT_INTERNAL = 5              # a bug here, not in the caller's request
 FORMATS = ("table", "json", "csv")
 COLOR_MODES = ("auto", "always", "never")
 
-#: Hammer frames for the anvil feedback, and the spark that ends a stage. ASCII
-#: fallbacks exist because a console that cannot encode these would otherwise
-#: raise UnicodeEncodeError — the same class of failure that once made `demo`
-#: exit non-zero on Windows for a purely cosmetic reason.
-_HAMMER = ("⟑", "⟒")
-_SPARK = "✷"
-_HAMMER_ASCII = ("/", "\\")
-_SPARK_ASCII = "*"
 
-_ANSI = {"dim": "\033[2m", "bold": "\033[1m", "red": "\033[31m",
-         "yellow": "\033[33m", "green": "\033[32m", "reset": "\033[0m"}
+_ANSI = {"dim": "\033[2m", "bold": "\033[1m", "reverse": "\033[7m",
+         "red": "\033[31m", "yellow": "\033[33m", "green": "\033[32m",
+         "reset": "\033[0m"}
 
 
 def _encodable(stream, text: str) -> bool:
@@ -163,39 +156,3 @@ class Output:
         """Critical errors survive --quiet; silence here would be a lie."""
         self.stderr.write(self.paint("error: " + text, "red") + "\n")
 
-
-class Feedback:
-    """TUI-0: the anvil and hammer, and nothing that outlives its usefulness.
-
-    Rules, from the roadmap and from what makes this safe to keep:
-
-    * only when stderr is a terminal — a piped run gets nothing;
-    * never on stdout, so a JSON consumer cannot see it;
-    * it does not clear the screen or rewrite history, so scrollback still reads
-      as a log;
-    * one line per real stage, not an animation on a timer. A frame that spins
-      while nothing changes is a lie about progress.
-    """
-
-    def __init__(self, out: Output, enabled: bool | None = None) -> None:
-        self._out = out
-        stderr = out.stderr
-        tty = bool(getattr(stderr, "isatty", lambda: False)())
-        self.enabled = (tty and not out.quiet) if enabled is None else enabled
-        unicode_ok = _encodable(stderr, "".join(_HAMMER) + _SPARK)
-        self._hammer = _HAMMER if unicode_ok else _HAMMER_ASCII
-        self._spark = _SPARK if unicode_ok else _SPARK_ASCII
-        self._beat = 0
-
-    def stage(self, message: str) -> None:
-        if not self.enabled:
-            return
-        glyph = self._hammer[self._beat % len(self._hammer)]
-        self._beat += 1
-        self._out.stderr.write(f"  {self._out.paint(glyph, 'dim')}  {message}\n")
-
-    def done(self, message: str) -> None:
-        if not self.enabled:
-            return
-        self._out.stderr.write(
-            f"  {self._out.paint(self._spark, 'green')}  {message}\n")

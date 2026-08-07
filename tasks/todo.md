@@ -60,6 +60,28 @@ dilimde YOK.
       düşer — `demo`'yu bir zamanlar Windows'ta salt kozmetik sebeple çökerten
       hatanın aynısı olmasın diye.
 
+## TUI-1 hazırda bekliyor (bağlı değil)
+
+`src/tarhan/forge.py` — canlı ilerleme ekranı. **Hiçbir komuta bağlı değil**,
+bilerek: ölçüt hâlâ karşılanmadı (tek run ~30 sn'yi aşmalı; bugün 1D çözüm
+milisaniyeler). Amaç, o gün geldiğinde bağlamanın tasarım işi değil mekanik iş
+olması.
+
+- Çalışırken **tek satır**: `╱▂▄▂ SOLVE  detay  (12.4s · 25% of solve · stage 3/4)`.
+  Örs sabit, çekiç vuruyor, kıvılcım yalnız temas karesinde.
+- Biterken **bir kez** örs bloğu + aşama listesi + gerçek süreler.
+- Ekran **hiç** silinmiyor (`ESC[2J` sıfır, testle çivili); scrollback yaşıyor.
+- İlerleme = tamamlanan aşama / toplam, artı **yalnızca çağıranın bildiği**
+  `within`. Zamanın ilerlemeyi sürdüğü hiçbir yol yok, bu da testle çivili.
+- TTY yoksa aşama başına düz satır; `--quiet` tamamen susturuyor.
+- `cliout.Feedback` **kaldırıldı**: çağrı yeri yoktu ve `Forge` onun yaptığı her
+  şeyi yapıyor. İkisini tutmak "ilerleme nasıl gösterilir"e iki kaynak bırakırdı.
+
+`validation/layer0/test_forge.py` (14 test) iki gerçek kusur yakaladı:
+`" · ".join(...)` ayracı ASCII moduna sızıyordu (Windows'ta çökme sınıfı), ve
+`pty` modül düzeyinde import ediliyordu — Windows'ta bütün dosyanın toplanmasını
+patlatırdı. İkincisini test yazarken değil, testi CI gözüyle okurken gördüm.
+
 ## Bu dilimde ek olarak yapılanlar
 
 - `AGENTS.md`: yeni komut ve çıkış kodu sözleşmesi belgelendi. Ayrıca oradaki
