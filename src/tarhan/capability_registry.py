@@ -285,11 +285,24 @@ REGISTRY: Tuple[Capability, ...] = (
         status="planned",
         inputs=("tetrahedral mesh", "doping", "contacts", "bias"),
         produces=("psi, n, p in 3D", "terminal currents"),
-        reason="No 3D engine exists. The box method generalises to tetrahedra in "
-               "principle, but nothing in this repository implements it.",
-        needs="A 3D box-method assembly with its own Delaunay prerequisite, and "
-              "a linear solver strategy that survives the node count — a direct "
-              "sparse LU stops being viable well before 3D device sizes.",
+        reason="No 3D mesh geometry exists. numerics/assemble.py is already "
+               "dimension-agnostic — it consumes edge transmissibilities and "
+               "node volumes and never asks what shape produced them — so what "
+               "is missing is a tetrahedral build_mesh: circumcentre-based "
+               "Voronoi facet AREAS instead of lengths, node volumes as "
+               "(1/6)*sum(A*L) instead of (1/4), and the positivity condition "
+               "restated for tetrahedra.",
+        needs="That mesh builder, then validation against DEVSIM's own 3D "
+              "diode: examples/diode/gmsh_diode3d.msh, 1417 nodes and 6701 "
+              "tetrahedra. CORRECTION, measured 2026-08-07: an earlier version "
+              "of this record claimed a direct sparse LU 'stops being viable "
+              "well before 3D device sizes' and offered that as a blocker. "
+              "That conflated a hypothetical 128^3 production mesh (2,097,152 "
+              "nodes, from the GPU note in AGENTS.md) with the oracle that "
+              "actually exists. At 1417 nodes the direct solver is not remotely "
+              "strained — the validated 2D capacitance case already runs 8281 "
+              "nodes through it. Scaling is a real question for later; it was "
+              "never a reason this stage could not start.",
     ),
     Capability(
         domain="semiconductor",
