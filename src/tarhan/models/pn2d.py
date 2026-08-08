@@ -42,7 +42,10 @@ import numpy as np
 
 from tarhan import backend
 from tarhan.models.pn1d import _contact_densities
-from tarhan.numerics.assemble import assemble_continuity, assemble_poisson
+from tarhan.numerics.assemble import (assemble_continuity, assemble_poisson,
+                                     node_volumes)
+from tarhan.numerics.transient import integrate_stiff
+from tarhan.models.pn1d import time_scale_seconds
 from tarhan.numerics.mesh import Mesh, build_mesh
 
 
@@ -268,6 +271,97 @@ def solve_bias(dev: PNDiode2D, v_applied: float, state=None,
     i_n, i_p = contact_current(dev, out, dev.biased_contact)
     out["i_n"], out["i_p"], out["i"] = i_n, i_p, i_n + i_p
     return out
+
+
+def _poisson_linear(dev: PNDiode2D, n_hat, p_hat, psi_bc):
+    """Poisson with the carrier densities fixed — one linear solve, no Newton.
+
+    The same reduction as the 1D transient path: with n̂ and p̂ as state
+    variables the charge n̂ − p̂ − N̂ contains no ψ̂, so passing
+    ``dcharge_dpsi = 0`` leaves the Jacobian equal to the bare box-method
+    Laplacian and one step from any starting point lands on the exact solution.
+    """
+    psi = np.zeros(dev.mesh.n_nodes)
+    system = assemble_poisson(dev.mesh, psi,
+                              charge=n_hat - p_hat - dev.doping_hat,
+                              dcharge_dpsi=np.zeros(dev.mesh.n_nodes),
+                              dirichlet=psi_bc)
+    step = backend.solve_sparse(system.rows, system.cols, system.vals,
+                                -system.residual, n=system.n_nodes)
+    return psi + step
+
+
+def transient_setup(dev: PNDiode2D, v_applied: float, state=None):
+    """Everything the time integrator needs, taken from the steady-state path."""
+    st = solve_bias(dev, v_applied, state=state)
+    psi_bc, n_bc, p_bc = dev._contact_state(v_applied)
+    pinned = np.zeros(dev.mesh.n_nodes, dtype=bool)
+    pinned[np.asarray(sorted(psi_bc), dtype=int)] = True
+    free = np.flatnonzero(~pinned)
+    mu_max = max(dev.mu_n, dev.mu_p)
+    return {
+        "state": st,
+        "free": free,
+        "psi_bc": psi_bc,
+        "n_bc": n_bc,
+        "p_bc": p_bc,
+        "volumes": node_volumes(dev.mesh),
+        "coef_n": np.full(len(dev.mesh.edges), dev.mu_n / mu_max),
+        "coef_p": np.full(len(dev.mesh.edges), dev.mu_p / mu_max),
+        "n_full": np.array(st["n_hat"], copy=True),
+        "p_full": np.array(st["p_hat"], copy=True),
+        "y_steady": np.concatenate([st["n_hat"][free], st["p_hat"][free]]),
+    }
+
+
+def transient_rhs(dev: PNDiode2D, setup, y):
+    """d(n̂, p̂)/dt̂ at the free nodes, with ψ̂ solved from the state.
+
+    The spatial operator is not rewritten here: ``assemble_continuity``'s
+    UNCONSTRAINED residual is already the net flux at each node — it is what
+    :func:`contact_current` reads to get a terminal current — so the
+    accumulation is −residual/volume. Reusing it means the transient and steady
+    paths cannot drift apart in their discretisation.
+
+    The sign is settled by the relaxation test rather than by argument: the
+    fixed-point check passes for EITHER sign, because the residual vanishes at
+    the steady state whichever way it is fed in. Only integrating tells them
+    apart — the wrong sign runs away instead of settling.
+    """
+    free = setup["free"]
+    n_free = len(free)
+    n_hat = setup["n_full"]
+    p_hat = setup["p_full"]
+    n_hat[free] = y[:n_free]
+    p_hat[free] = y[n_free:]
+
+    psi = _poisson_linear(dev, n_hat, p_hat, setup["psi_bc"])
+    res_n = assemble_continuity(dev.mesh, n_hat, psi, carrier="electron",
+                                edge_coef=setup["coef_n"]).residual
+    res_p = assemble_continuity(dev.mesh, p_hat, psi, carrier="hole",
+                                edge_coef=setup["coef_p"]).residual
+    vol = setup["volumes"]
+    return np.concatenate([-res_n[free] / vol[free],
+                           -res_p[free] / vol[free]])
+
+
+def transient_solve(dev: PNDiode2D, v_applied: float, *, y0=None,
+                    t_span_hat=(0.0, 40.0), t_eval=None, rtol: float = 1e-8,
+                    atol: float = 1e-14, method: str = "BDF", state=None):
+    """Integrate (n̂, p̂) on the box mesh in scaled time.
+
+    ``t_span_hat`` is in units of :func:`tarhan.models.pn1d.time_scale_seconds`
+    — the same dielectric relaxation time from the same reference mobility, so
+    the 1D and 2D transients share one clock.
+    """
+    setup = transient_setup(dev, v_applied, state=state)
+    y_start = setup["y_steady"] if y0 is None else y0
+    sol = integrate_stiff(lambda _t, y: transient_rhs(dev, setup, y),
+                          y_start, t_span_hat, t_eval=t_eval, rtol=rtol,
+                          atol=atol, method=method)
+    setup["solution"] = sol
+    setup["t_seconds"] = sol.t * time_scale_seconds(dev)
+    return setup
 
 
 def iv_sweep(dev: PNDiode2D, voltages, **kw):

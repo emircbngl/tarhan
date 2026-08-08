@@ -209,17 +209,35 @@ REGISTRY: Tuple[Capability, ...] = (
         family="pn.drift-diffusion",
         dimension=2,
         time="transient",
-        status="planned",
-        inputs=("triangular mesh", "net doping", "contacts", "bias waveform"),
-        produces=("time-resolved fields on the mesh",
-                  "contact current transients"),
-        reason="Follows the 1D transient stage rather than preceding it. The "
-               "spatial operator already exists in numerics/assemble.py; what "
-               "is missing is the time coupling, and it is worth getting wrong "
-               "first in 1D, where the steady state is already validated to "
-               "0.57 microvolt and a discrepancy has one fewer place to hide.",
-        needs="The 1D transient capability, then the same mass term on the box "
-              "mesh.",
+        status="validated",
+        source="models/pn2d.py",
+        inputs=("triangular mesh (read, never generated)", "net doping",
+                "contact node sets", "bias", "initial (n, p) state"),
+        produces=("time-resolved fields on the mesh", "the seconds axis"),
+        limits=("no displacement current, as in 1D: the terminal current omits "
+                "the eps*dE/dt term, so a switching current cannot be read off",
+                "no SRH in the transient path",
+                "the bias is held fixed; there is no waveform input",
+                "the spatial operator's own validation is stages 2D-1 and 2D-2 "
+                "against DEVSIM; the transient tests exercise the time "
+                "coupling on a small strip, not the mesh"),
+        evidence=(
+            Evidence("the validated steady state is an exact fixed point of "
+                     "the transient right-hand side on the box mesh",
+                     "max|dy/dt| 2.60e-17 at equilibrium and 4.60e-16 at "
+                     "0.30 V",
+                     f"{_V}/semiconductor/test_pn2d_transient.py"),
+            Evidence("the linear-Poisson reduction holds on the box mesh",
+                     "the linear solve reproduces the Newton potential to "
+                     "1.3e-16 relative — machine precision, not a tolerance",
+                     f"{_V}/semiconductor/test_pn2d_transient.py"),
+            Evidence("a perturbed state relaxes back, which is what settles "
+                     "the sign of the accumulation",
+                     "a 5% perturbation decays from 1.553e-1 to 4.05e-11 by "
+                     "t=1e3 scaled units, reaching the steady solution's own "
+                     "numerical floor",
+                     f"{_V}/semiconductor/test_pn2d_transient.py"),
+        ),
     ),
     Capability(
         domain="semiconductor",
