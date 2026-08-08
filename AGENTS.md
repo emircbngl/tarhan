@@ -79,10 +79,31 @@ Two things matter when scripting it:
   the anvil feedback always go to stderr, in every format including `table`.
   So `tarhan capabilities list --format json | jq` is safe.
 - **The exit status is the machine-readable half of the answer.** `0` success;
-  `2` bad input, including an unknown capability id; `3` the capability is
-  blocked or merely planned — the record still prints in full; `4` the solver
-  did not converge, which has no call site yet because it belongs to
-  `run solve`; `5` an internal bug. Do not grep the prose — it will be reworded.
+  `2` bad input, including an unknown capability id or two runs that cannot be
+  compared; `3` the capability is blocked, merely planned, or validated but not
+  wired to `run solve` — the record still prints in full; `4` the solver did not
+  converge, and no artifact is written; `5` an internal bug. Do not grep the
+  prose — it will be reworded.
+
+## Running something and keeping the result
+
+```bash
+tarhan run solve <capability-id> --bias 0.3 --output runs/
+tarhan run show <run-id> --output runs/
+tarhan compare runs <run-a> <run-b> --output runs/
+```
+
+A run leaves `runs/<run-id>/` behind: `manifest.json`, `input.lock.toml`,
+`provenance.json`, `metrics.json`, `fields.npz`, `stdout.log`, `report.md`. The
+id is a hash of the capability, the resolved inputs and the solver contract, so
+**re-running the same problem overwrites rather than accumulates** — and a
+changed tolerance is a different problem, landing elsewhere. The timestamp is
+recorded but not hashed; include the clock and every run would be unique by
+construction, which is the same as having no id at all.
+
+`compare runs` refuses rather than ranks when the comparability contract does
+not hold, and exits `2` naming the term that differs. Two solves at different
+tolerances produce two numbers you *can* subtract; the difference means nothing.
 
 `tarhan demo` keeps its own older 0/1 contract and is untouched by the above.
 

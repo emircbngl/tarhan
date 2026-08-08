@@ -18,9 +18,10 @@ Which codes are wired today, stated plainly rather than implied:
   planned capability. The record still prints in full — the non-zero status is
   the machine-readable half of the same answer, so a script does not have to
   parse the word "blocked" out of a paragraph.
-* ``EXIT_NO_CONVERGENCE`` has **no call site yet**. It belongs to ``run solve``,
-  which is P1 and not in this slice. It is defined now so the numbering is fixed
-  before anything depends on it.
+* ``EXIT_NO_CONVERGENCE`` is returned by ``run solve`` when the solver gives up.
+  No artifact is written in that case: a partial state would claim more than the
+  run earned. (This entry read "no call site yet" from the day the numbering was
+  fixed until ``run solve`` existed to use it.)
 * ``EXIT_INTERNAL`` is the catch-all for an unexpected exception.
 
 ``tarhan demo`` keeps its existing 0/1 contract untouched. AGENTS.md documents

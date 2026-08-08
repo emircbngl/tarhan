@@ -14,6 +14,7 @@ import contextlib
 import math
 import os
 import sys
+from pathlib import Path
 
 from tarhan import __version__, cliout, physics
 from tarhan.capability_registry import CapabilityNotFound, all_capabilities, get
@@ -151,6 +152,169 @@ def _capabilities_doctor(out: cliout.Output) -> int:
                  ("check", "status", "detail"))
     return (cliout.EXIT_UNAVAILABLE
             if any(ok is False for _, ok, _ in results) else cliout.EXIT_OK)
+
+
+def _solve_pn1d_steady(inputs):
+    """The one capability wired to `run solve` today.
+
+    Returns (metrics, fields, solver_used). Raises RuntimeError when Gummel
+    fails to converge — the caller turns that into EXIT_NO_CONVERGENCE rather
+    than a traceback, because a solver giving up is a legitimate outcome the
+    caller has to be able to branch on.
+    """
+    from tarhan.models.pn1d import PNDiode1D, solve_bias
+
+    device = {k: v for k, v in inputs.items()
+              if k in ("Na", "Nd", "ni", "ut", "len_p", "len_n")}
+    dev = PNDiode1D(**device)
+    state = solve_bias(dev, inputs["bias_v"],
+                       gummel_tol=inputs.get("tol", 1e-9),
+                       max_gummel=int(inputs.get("max_iter", 60)))
+    metrics = {"current_a_cm2": float(state["j"]),
+               "gummel_iterations": int(state["gummel_iters"]),
+               "grid_points": int(len(state["x_hat"]))}
+    fields = {"x_hat": state["x_hat"], "psi": state["psi"],
+              "n_hat": state["n_hat"], "p_hat": state["p_hat"]}
+    return metrics, fields
+
+
+#: capability id -> the callable that runs it. A capability absent from this map
+#: is not runnable from the CLI even if the registry calls it validated: being
+#: proven and being wired up are different facts and the error says which.
+RUNNERS = {"semiconductor.pn.drift-diffusion.1d.steady": _solve_pn1d_steady}
+
+
+def _run_solve(out: cliout.Output, args) -> int:
+    """Solve, then leave a directory that can answer for the result."""
+    from tarhan import artifact
+
+    try:
+        cap = get(args.capability_id)
+    except CapabilityNotFound:
+        out.error(f"no such capability: {args.capability_id}")
+        out.note("run `tarhan capabilities list` to see the ids that exist")
+        return cliout.EXIT_INPUT
+
+    if not cap.runnable:
+        out.error(f"{cap.id} is {cap.status}; refusing to solve it")
+        out.note(cap.reason)
+        if cap.needs:
+            out.note(f"needs: {cap.needs}")
+        return cliout.EXIT_UNAVAILABLE
+    if cap.id not in RUNNERS:
+        out.error(f"{cap.id} is {cap.status} but is not wired to `run solve`")
+        out.note("the physics is proven; the command surface for it is not "
+                 "built. These are different things and this is the second.")
+        return cliout.EXIT_UNAVAILABLE
+
+    inputs = {"bias_v": float(args.bias)}
+    solver = {"method": "gummel", "tol": float(args.tol),
+              "max_iter": int(args.max_iter)}
+    try:
+        metrics, fields = RUNNERS[cap.id]({**inputs, **solver})
+    except RuntimeError as exc:
+        # The call site EXIT_NO_CONVERGENCE was defined for. A solver that
+        # gives up is not a crash and must not be reported as one.
+        out.error(f"solver did not converge: {exc}")
+        out.note("no artifact was written; a partial state would claim more "
+                 "than the run earned")
+        return cliout.EXIT_NO_CONVERGENCE
+
+    path = artifact.write_run(
+        args.output, capability=cap.id, capability_status=cap.status,
+        inputs=inputs, solver=solver, metrics=metrics,
+        provenance={"model": cap.source, "device": "PNDiode1D defaults",
+                    "scenario": f"single bias {args.bias} V"},
+        status="converged", command=f"tarhan run solve {cap.id}",
+        version=__version__, fields_data=fields,
+        report=f"# {cap.id}\n\nbias {args.bias} V\n")
+
+    rows = [{"run_id": path.name, "capability": cap.id, **metrics}]
+    out.emit(rows, tuple(rows[0]))
+    out.note(f"artifact written to {path}")
+    return cliout.EXIT_OK
+
+
+def _run_show(out: cliout.Output, args) -> int:
+    from tarhan import artifact
+
+    path = Path(args.output) / args.run_id
+    try:
+        run = artifact.read_run(path)
+    except (artifact.ArtifactError, OSError) as exc:
+        out.error(str(exc))
+        return cliout.EXIT_INPUT
+
+    manifest = run["manifest"]
+    if out.fmt == "table":
+        lines = [f"{k + ':':<20}{v}" for k, v in manifest.items()
+                 if not isinstance(v, dict)]
+        lines += [f"{'solver.' + k + ':':<20}{v}"
+                  for k, v in manifest["solver"].items()]
+        lines += [f"{'metric.' + k + ':':<20}{v}"
+                  for k, v in run["metrics"].items()]
+        out.detail("\n".join(lines) + "\n")
+    else:
+        out.emit([{**manifest, **run["metrics"]}],
+                 tuple({**manifest, **run["metrics"]}))
+    return cliout.EXIT_OK
+
+
+#: The comparability contract, roadmap §5.3. Each entry is (label, extractor).
+#: A difference in ANY of these makes a ranking meaningless, so `compare`
+#: reports the difference instead of inventing one.
+_CONTRACT = (
+    ("capability", lambda r: r["manifest"]["capability"]),
+    ("solver", lambda r: r["manifest"]["solver"]),
+    ("inputs", lambda r: r["inputs"]),
+)
+
+
+def _incomparable(left, right):
+    """Which contract terms differ. Empty means the two can be compared."""
+    return [label for label, get_term in _CONTRACT
+            if get_term(left) != get_term(right)]
+
+
+def _compare_runs(out: cliout.Output, args) -> int:
+    """Compare two runs, or refuse and say exactly which term broke.
+
+    Refusing is the feature. Two solves at different tolerances produce two
+    numbers that can be subtracted, and the difference means nothing; printing
+    it anyway is how a spurious ranking gets into a report.
+    """
+    from tarhan import artifact
+
+    runs = []
+    for run_id_arg in (args.left, args.right):
+        try:
+            runs.append(artifact.read_run(Path(args.output) / run_id_arg))
+        except (artifact.ArtifactError, OSError) as exc:
+            out.error(str(exc))
+            return cliout.EXIT_INPUT
+
+    left, right = runs
+    differing = _incomparable(left, right)
+    if differing:
+        out.error("not comparable: " + ", ".join(f"different {d}"
+                                                 for d in differing))
+        out.note("§5.3 of the roadmap: a ranking across a changed contract is "
+                 "not a weaker result, it is a different question")
+        if out.fmt != "table":
+            out.emit([{"comparable": False, "differing": ",".join(differing)}],
+                     ("comparable", "differing"))
+        return cliout.EXIT_INPUT
+
+    keys = sorted(set(left["metrics"]) & set(right["metrics"]))
+    rows = []
+    for key in keys:
+        a, b = left["metrics"][key], right["metrics"][key]
+        delta = (b - a) if isinstance(a, (int, float)) else None
+        rows.append({"metric": key, "left": a, "right": b, "delta": delta})
+    out.emit(rows, ("metric", "left", "right", "delta"))
+    out.note(f"comparable: same capability, solver contract and inputs "
+             f"({len(keys)} shared metrics)")
+    return cliout.EXIT_OK
 
 
 def _capabilities_show(out: cliout.Output, capability_id: str) -> int:
@@ -376,6 +540,39 @@ def main(argv: list[str] | None = None) -> int:
                     "form a script does not have to parse.")
     p_show.add_argument("capability_id", metavar="<capability-id>")
 
+    p_run = sub.add_parser("run", help="solve, and leave an artifact behind")
+    run_sub = p_run.add_subparsers(dest="run_command")
+    p_solve = run_sub.add_parser(
+        "solve",
+        help="run one capability and write a run directory",
+        description="Refuses a blocked or planned capability with exit 3 "
+                    "before doing any work, and exits 4 if the solver gives "
+                    "up. No artifact is written for a run that did not "
+                    "converge.")
+    p_solve.add_argument("capability_id", metavar="<capability-id>")
+    p_solve.add_argument("--bias", type=float, default=0.3,
+                         help="applied bias in volts (default: 0.3)")
+    p_solve.add_argument("--tol", type=float, default=1e-9,
+                         help="solver tolerance; part of the run id")
+    p_solve.add_argument("--max-iter", dest="max_iter", type=int, default=60)
+    p_solve.add_argument("--output", default="runs",
+                         help="directory to write run artifacts into")
+    p_rshow = run_sub.add_parser("show", help="reopen a run by id")
+    p_rshow.add_argument("run_id", metavar="<run-id>")
+    p_rshow.add_argument("--output", default="runs")
+
+    p_cmp = sub.add_parser("compare", help="compare two runs, or refuse to")
+    cmp_sub = p_cmp.add_subparsers(dest="compare_command")
+    p_cruns = cmp_sub.add_parser(
+        "runs",
+        help="compare two run directories",
+        description="Exits 2 when the comparability contract does not hold, "
+                    "naming the term that differs, rather than subtracting "
+                    "numbers that mean different things.")
+    p_cruns.add_argument("left", metavar="<run-id>")
+    p_cruns.add_argument("right", metavar="<run-id>")
+    p_cruns.add_argument("--output", default="runs")
+
     p_demo = sub.add_parser("demo", help="zero-config reproduction demos")
     p_demo.add_argument("--case", choices=("cottrell", "diode"), default="cottrell",
                         help="demo case (default: cottrell)")
@@ -406,6 +603,20 @@ def main(argv: list[str] | None = None) -> int:
             if args.cap_command == "show":
                 return _capabilities_show(out, args.capability_id)
             p_cap.print_help()
+            return cliout.EXIT_INPUT
+
+        if args.command == "run":
+            if args.run_command == "solve":
+                return _run_solve(out, args)
+            if args.run_command == "show":
+                return _run_show(out, args)
+            p_run.print_help()
+            return cliout.EXIT_INPUT
+
+        if args.command == "compare":
+            if args.compare_command == "runs":
+                return _compare_runs(out, args)
+            p_cmp.print_help()
             return cliout.EXIT_INPUT
     except Exception as exc:                       # noqa: BLE001 — the boundary
         # The last line of defence: an unexpected exception is OUR bug, and it

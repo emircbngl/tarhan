@@ -60,6 +60,66 @@ dilimde YOK.
       düşer — `demo`'yu bir zamanlar Windows'ta salt kozmetik sebeple çökerten
       hatanın aynısı olmasın diye.
 
+## 3–10 arası kalemler (2026-08-07)
+
+- [x] **3. Registry boşluğu.** `1d.transient` ve `2d.transient` eklendi. Eksik
+      bir basamak yalnızca bilgilendirmemekle kalmaz, **yanlış bilgilendirir** —
+      boşluk bir sıralama gibi okunur.
+- [x] **4. 1D transient cihaz.** `pn1d` zaman türevi kazandı. Anahtar gözlem:
+      `n,p` durum değişkeniyken yük `n−p−N` ψ içermez, Poisson **lineerdir**,
+      index-1 DAE bir ODE'ye iner. Sabit nokta 1.59e-13 / 3.69e-13; %5 bozulma
+      1.553e-1 → 7.61e-8; t0 = 4.794e-13 s, sertlik 5.37e3, BDF 425 adım.
+- [x] **5. 2D transient.** Operatör yeniden yazılmadı, `assemble_continuity`'nin
+      kısıtsız rezidüeli kullanıldı. Sabit nokta 2.60e-17 / 4.60e-16; lineer
+      Poisson = Newton, 1.3e-16 bağıl (makine hassasiyeti).
+      **Öğrenilen:** sabit-nokta testi **her iki işaret için de** geçiyor;
+      işareti yalnız gevşeme testi belirliyor.
+- [x] **6. 3D steady — BLOKLU, ölçülmüş gerekçeyle.** Çevrel-merkezli dual
+      well-centered tetrahedronda tam (facet √2/3, hacim (1/6)ΣA·L), ama çevrel
+      merkez dışarıdaysa **tam iki kat** şişiyor — ve DEVSIM'in kendi 3D
+      diyodunda 6701'in 2555'i (%38.1) o durumda. 2D-4'ü blokladı diye anılan
+      oran %0.27'ydi.
+- [x] **7. 4D (3D + zaman).** Tamamen 6'ya bağlı; `planned`, blokçusu adıyla.
+- [x] **8. Artifact şeması.** `src/tarhan/artifact.py`. Kimlik **içeriktir**:
+      capability + çözülmüş girdi + solver sözleşmesinin hash'i. **Zaman damgası
+      hash'e girmiyor** — girseydi her koşu inşaen benzersiz olur, "aynı problem
+      aynı yere düşer" özelliği uygulanmış görünürken yanlış olurdu.
+- [x] **9. `run solve`.** Bloklu/planned capability iş yapılmadan **3** ile
+      reddediliyor; yakınsamama **4** ile ve **artifact yazılmadan** — yarım bir
+      durum, koşunun hak ettiğinden fazlasını iddia ederdi. `EXIT_NO_CONVERGENCE`
+      nihayet çağrı yeri kazandı; `cliout.py` ve `AGENTS.md`'deki "henüz yok"
+      cümleleri de birlikte düzeltildi.
+- [x] **10. `run show` + `compare runs`.** Kıyas sözleşmesi tutmuyorsa `compare`
+      **sıralama uydurmuyor**: hangi terimin farklı olduğunu söyleyip 2 ile
+      çıkıyor, ve reddi JSON'da da makine-okur biçimde veriyor.
+
+## İnceleme (3–10)
+
+**Sayılar.** Test 387 → 407 → 420. Registry 12 kayıt: 9 validated, 3 blocked.
+Beş dilim ayrı ayrı yayınlandı, her biri CI yeşil.
+
+**Bu turun asıl dersi bir sayıyı yayınlamamak oldu.** 3D için işaretli dual
+kurulumu "kenarların %26'sı negatif" diye bir engel üretti ve onu rapor etmenin
+eşiğindeydim. Aynı kurulum mesh hacmini yalnız %66 üretiyordu — yani kendi
+tutarlılık kontrolünü geçemiyordu. Geri çektim. Tam olarak üretmesi gereken bir
+büyüklüğü üretemeyen ölçüm, hiçbir şeyin kanıtı değildir.
+
+**Üç iddiam yanlış çıktı ve üçü de kayda geçti:** "doğrudan LU geçerli değil"
+(varsayımsal 128³ mesh'i 1417 düğümlük gerçek oracle'la karıştırmışım),
+"referans mesh yok" (baştan beri oradaydı), ve yukarıdaki %26. Var olmayan bir
+engel, hiç not olmamasından kötüdür — ilerleyebilecek işi durdurur.
+
+**Bir de tolerans dersi:** CI kırmızı döndü çünkü eşiği kendi makinemin
+ölçtüğü sayıya göre kurmuştum (8.62e-12 → eşik 1e-10); ubuntu 1.624e-10 verdi.
+Eşik, ölçülen sayıya değil **gerçek bir kusurun üreteceği büyüklüğe** göre
+kurulur.
+
+**Bilinçli olarak yapılmayanlar.** 3D ve 4D bloklu. `run solve` yalnız
+`pn1d.1d.steady`'ye bağlı — 2D steady doğrulanmış ama CLI'a bağlanmamış, ve hata
+mesajı hangi yarısının eksik olduğunu söylüyor ("kanıtlanmış olmak" ile
+"bağlanmış olmak" farklı olgular). Transient yolda yer değiştirme akımı, SRH ve
+bias dalga formu yok. `campaign`, `candidate` ve TUI-1+ hâlâ yol haritasında.
+
 ## TUI-1 hazırda bekliyor (bağlı değil)
 
 `src/tarhan/forge.py` — canlı ilerleme ekranı. **Hiçbir komuta bağlı değil**,
