@@ -282,9 +282,15 @@ REGISTRY: Tuple[Capability, ...] = (
         family="device.drift-diffusion",
         dimension=3,
         time="steady",
-        status="planned",
+        status="blocked",
         inputs=("tetrahedral mesh", "doping", "contacts", "bias"),
         produces=("psi, n, p in 3D", "terminal currents"),
+        does_not_mean="It does NOT mean 3D is unreachable, and it is NOT a "
+                      "solver or scaling problem — that earlier claim was "
+                      "withdrawn after measurement. The obstacle is the dual "
+                      "geometry on tetrahedra, and it is a solved problem in "
+                      "the literature; it is simply not solved HERE yet. "
+                      "Nothing about 0D, 1D or 2D is affected.",
         reason="No 3D mesh geometry exists. numerics/assemble.py is already "
                "dimension-agnostic — it consumes edge transmissibilities and "
                "node volumes and never asks what shape produced them — so what "
@@ -294,15 +300,23 @@ REGISTRY: Tuple[Capability, ...] = (
                "restated for tetrahedra.",
         needs="That mesh builder, then validation against DEVSIM's own 3D "
               "diode: examples/diode/gmsh_diode3d.msh, 1417 nodes and 6701 "
-              "tetrahedra. CORRECTION, measured 2026-08-07: an earlier version "
-              "of this record claimed a direct sparse LU 'stops being viable "
-              "well before 3D device sizes' and offered that as a blocker. "
-              "That conflated a hypothetical 128^3 production mesh (2,097,152 "
-              "nodes, from the GPU note in AGENTS.md) with the oracle that "
-              "actually exists. At 1417 nodes the direct solver is not remotely "
-              "strained — the validated 2D capacitance case already runs 8281 "
-              "nodes through it. Scaling is a real question for later; it was "
-              "never a reason this stage could not start.",
+              "tetrahedra. MEASURED 2026-08-07 in "
+              "validation/layer0/numerics/test_tetrahedral_geometry.py: on a "
+              "WELL-CENTRED tetrahedron the circumcentric dual is exact — the "
+              "regular tetrahedron gives facet sqrt(2)/3 per edge and the "
+              "(1/6)*sum(A*L) volume identity to machine precision. But the "
+              "same construction OVERSHOOTS BY EXACTLY TWO on a tetrahedron "
+              "whose circumcentre lies outside it, and 2555 of 6701 tetrahedra "
+              "in the reference mesh (38.1%) are in that state — against the "
+              "0.27% of edges that were enough to block stage 2D-4. A signed "
+              "variant was attempted and is NOT trustworthy: it reproduces the "
+              "mesh volume to only 66%, so its '26% of edges negative' figure "
+              "is withdrawn rather than reported. TWO EARLIER CLAIMS ALSO "
+              "WITHDRAWN: that a direct sparse LU 'stops being viable' here "
+              "(it conflated a hypothetical 128^3 production mesh with the "
+              "1417-node oracle; the validated 2D capacitance case already "
+              "runs 8281 nodes through the same solver), and that no reference "
+              "mesh existed.",
     ),
     Capability(
         domain="semiconductor",
