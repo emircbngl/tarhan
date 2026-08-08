@@ -115,18 +115,31 @@ DOCTOR_CHECKS = (
 )
 
 
-def _capabilities_doctor(out: cliout.Output) -> int:
+def _make_forge(out: cliout.Output, stages, *, style: str, graphics: str,
+                pin=False):
+    """Build the display, with the raster backend when the terminal has one.
+
+    ``PixelForge`` is a strict extension of ``Forge``: it overrides only the
+    pinned-indicator draw and falls back to the text cell when no inline
+    graphics protocol is detected. So it is the right thing to construct
+    everywhere — a terminal without kitty or iTerm2 gets exactly what it got
+    before, and no call site has to branch.
+    """
+    from tarhan.forge_pixels import PixelForge
+
+    return PixelForge(stages, out, style=style, pin=pin, graphics=graphics)
+
+
+def _capabilities_doctor(out: cliout.Output, graphics: str = "auto") -> int:
     """Bring the tools up, and say plainly whether they came up.
 
     The bar counts completed checks. It is not a timer, and no path advances it
     with elapsed time — the same rule the solver display follows, for the same
     reason: a number that looks measured has to be measured.
     """
-    from tarhan.forge import Forge
-
     results = []
-    forge = Forge([name for name, _, _ in DOCTOR_CHECKS], out, style="boot",
-                  pin=False)
+    forge = _make_forge(out, [name for name, _, _ in DOCTOR_CHECKS],
+                        style="boot", graphics=graphics)
     with forge:
         for name, detail, check in DOCTOR_CHECKS:
             forge.begin(name, detail)
@@ -210,8 +223,15 @@ def _run_solve(out: cliout.Output, args) -> int:
     inputs = {"bias_v": float(args.bias)}
     solver = {"method": "gummel", "tol": float(args.tol),
               "max_iter": int(args.max_iter)}
+    forge = _make_forge(out, ["SOLVE"], style="indicator",
+                        graphics=args.graphics, pin="auto")
     try:
-        metrics, fields = RUNNERS[cap.id]({**inputs, **solver})
+        with forge:
+            forge.begin("SOLVE", f"{cap.family} at {args.bias} V")
+            forge.tick()
+            metrics, fields = RUNNERS[cap.id]({**inputs, **solver})
+            forge.finish(f"{metrics['gummel_iterations']} iterations")
+            forge.converged(f"current {metrics['current_a_cm2']:.4e} A/cm^2")
     except RuntimeError as exc:
         # The call site EXIT_NO_CONVERGENCE was defined for. A solver that
         # gives up is not a crash and must not be reported as one.
@@ -518,6 +538,11 @@ def main(argv: list[str] | None = None) -> int:
                              "a terminal, never in json/csv, never with NO_COLOR)")
     parser.add_argument("--quiet", action="store_true",
                         help="suppress notes and progress; errors still print")
+    parser.add_argument("--graphics", choices=("auto", "kitty", "iterm", "text"),
+                        default="auto",
+                        help="inline-graphics protocol for the forge indicator "
+                             "(default: auto — detected, and text where no "
+                             "protocol is available)")
     sub = parser.add_subparsers(dest="command")
 
     p_cap = sub.add_parser(
@@ -574,8 +599,10 @@ def main(argv: list[str] | None = None) -> int:
     p_cruns.add_argument("--output", default="runs")
 
     p_demo = sub.add_parser("demo", help="zero-config reproduction demos")
-    p_demo.add_argument("--case", choices=("cottrell", "diode"), default="cottrell",
-                        help="demo case (default: cottrell)")
+    p_demo.add_argument("--case", choices=("cottrell", "diode", "forge"),
+                        default="cottrell",
+                        help="demo case (default: cottrell). `forge` shows the "
+                             "run indicator itself, with synthetic work")
     p_demo.add_argument("--save", metavar="PATH", default=None, help="save the plot as a PNG")
     p_demo.add_argument("--show", dest="show", action="store_true", default=None,
                         help="open an interactive plot window (default: only when "
@@ -590,6 +617,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "demo":
             # demo keeps its own 0/1 contract, documented in AGENTS.md. It
             # predates this output contract and people already depend on it.
+            if args.case == "forge":
+                from tarhan.forge_pixels import demo as forge_demo
+                forge_demo(args.graphics)
+                return cliout.EXIT_OK
             show = _should_show(args.show)
             if args.case == "diode":
                 return _demo_diode(save=args.save, show=show)
@@ -599,7 +630,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.cap_command == "list":
                 return _capabilities_list(out)
             if args.cap_command == "doctor":
-                return _capabilities_doctor(out)
+                return _capabilities_doctor(out, args.graphics)
             if args.cap_command == "show":
                 return _capabilities_show(out, args.capability_id)
             p_cap.print_help()
