@@ -47,6 +47,7 @@ REPORT = "report.md"
 RUN_FILES = (MANIFEST, INPUT_LOCK, PROVENANCE, METRICS, STDOUT_LOG, REPORT)
 
 ID_LENGTH = 12          # 48 bits of sha256; collision is not the failure mode
+CODE_ID_LENGTH = 8      # enough to separate builds, short enough to read
 
 
 class ArtifactError(ValueError):
@@ -77,6 +78,50 @@ def run_id(capability: str, inputs: Mapping[str, Any],
                        "inputs": dict(inputs),
                        "solver": dict(solver)})
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:ID_LENGTH]
+
+
+def environment():
+    """What the result was produced BY, as opposed to what it was produced FROM.
+
+    Two runs of the same problem under different code are two different results.
+    Recording only the inputs makes that indistinguishable, and the directory
+    for the first would be silently overwritten by the second — reported in
+    review against the first version of this module, which hashed the problem
+    and nothing else.
+    """
+    import platform
+
+    from tarhan import __version__
+
+    versions = {"tarhan": __version__, "python": platform.python_version()}
+    for name in ("numpy", "scipy"):
+        try:
+            versions[name] = __import__(name).__version__
+        except Exception:                                 # noqa: BLE001
+            versions[name] = "absent"
+    return versions
+
+
+def code_id(env=None) -> str:
+    """A short hash of the code and libraries that produced a result."""
+    env = environment() if env is None else env
+    return hashlib.sha256(
+        _canonical(dict(env)).encode("utf-8")).hexdigest()[:CODE_ID_LENGTH]
+
+
+def checksums(path) -> Dict[str, str]:
+    """sha256 of every file in a run directory except the manifest itself.
+
+    The manifest cannot contain its own hash, so it is the one file this does
+    not cover; everything it points at is covered, which is what makes an edit
+    to metrics.json or fields.npz detectable rather than invisible.
+    """
+    path = Path(path)
+    out = {}
+    for item in sorted(path.iterdir()):
+        if item.is_file() and item.name != MANIFEST:
+            out[item.name] = hashlib.sha256(item.read_bytes()).hexdigest()
+    return out
 
 
 # --- the small TOML the roadmap asks for ----------------------------------
@@ -136,6 +181,9 @@ class RunManifest:
     solver: Dict[str, Any] = field(default_factory=dict)
     capability_status: str = ""       # validated | blocked | planned, at run time
     notes: str = ""
+    code_id: str = ""                 # what produced it, not what it was made from
+    environment: Dict[str, Any] = field(default_factory=dict)
+    files: Dict[str, str] = field(default_factory=dict)   # sha256 per file
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -148,6 +196,9 @@ class RunManifest:
             "created": self.created,
             "solver": self.solver,
             "notes": self.notes,
+            "code_id": self.code_id,
+            "environment": self.environment,
+            "files": self.files,
         }
 
 
@@ -168,17 +219,16 @@ def write_run(root, *, capability: str, capability_status: str,
     differing only in a timestamp are two answers to one question with no way
     to tell which was meant.
     """
-    identifier = run_id(capability, inputs, solver)
+    problem = run_id(capability, inputs, solver)
+    env = environment()
+    build = code_id(env)
+    # The directory carries BOTH: the same problem under different code is a
+    # different result, and naming it only by the problem meant the first was
+    # silently overwritten by the second.
+    identifier = f"{problem}-{build}"
     path = Path(root) / identifier
     path.mkdir(parents=True, exist_ok=True)
 
-    manifest = RunManifest(run_id=identifier, capability=capability,
-                           capability_status=capability_status, status=status,
-                           tarhan_version=version, command=command,
-                           created=utc_now(), solver=dict(solver), notes=notes)
-    (path / MANIFEST).write_text(
-        json.dumps(manifest.to_dict(), indent=2, sort_keys=True,
-                   ensure_ascii=False) + "\n", encoding="utf-8")
     (path / INPUT_LOCK).write_text(dumps_toml(inputs), encoding="utf-8")
     (path / PROVENANCE).write_text(
         json.dumps(dict(provenance), indent=2, sort_keys=True,
@@ -191,6 +241,17 @@ def write_run(root, *, capability: str, capability_status: str,
     if fields_data:
         import numpy as np
         np.savez_compressed(path / FIELDS, **dict(fields_data))
+
+    # The manifest goes last, because it records a checksum of everything else.
+    manifest = RunManifest(run_id=identifier, capability=capability,
+                           capability_status=capability_status, status=status,
+                           tarhan_version=version, command=command,
+                           created=utc_now(), solver=dict(solver), notes=notes,
+                           code_id=build, environment=env,
+                           files=checksums(path))
+    (path / MANIFEST).write_text(
+        json.dumps(manifest.to_dict(), indent=2, sort_keys=True,
+                   ensure_ascii=False) + "\n", encoding="utf-8")
     return path
 
 
@@ -204,6 +265,22 @@ def read_run(path) -> Dict[str, Any]:
         raise ArtifactError(f"{path} is not a complete run; missing {missing}")
 
     manifest = json.loads((path / MANIFEST).read_text(encoding="utf-8"))
+
+    # Hashing only the inputs left metrics.json, provenance.json and fields.npz
+    # editable without trace — reported in review. Every file the manifest
+    # points at is checked against the checksum recorded at write time, and the
+    # check runs BEFORE anything is parsed: a tampered JSON file would
+    # otherwise surface as a decode error, which says the file is malformed
+    # when what actually happened is that someone changed the result.
+    actual = checksums(path)
+    for name, digest in manifest.get("files", {}).items():
+        if name not in actual:
+            raise ArtifactError(f"{path}: {name} is recorded but missing")
+        if actual[name] != digest:
+            raise ArtifactError(
+                f"{path}: {name} does not match the checksum recorded when the "
+                "run was written; the result has been edited after the fact")
+
     inputs = tomllib.loads((path / INPUT_LOCK).read_text(encoding="utf-8"))
     out = {
         "path": path,
@@ -216,7 +293,8 @@ def read_run(path) -> Dict[str, Any]:
         "report": (path / REPORT).read_text(encoding="utf-8"),
     }
     expected = run_id(manifest["capability"], inputs, manifest["solver"])
-    if expected != manifest["run_id"]:
+    recorded = manifest["run_id"].split("-")[0]
+    if expected != recorded:
         raise ArtifactError(
             f"{path}: the manifest says run_id {manifest['run_id']} but its own "
             f"inputs and solver hash to {expected}. Something was edited after "

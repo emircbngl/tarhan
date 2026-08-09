@@ -204,6 +204,26 @@ def _solve_pn1d_steady(inputs, on_iteration=None):
     return metrics, fields
 
 
+def _resolved_device() -> dict:
+    """Every PNDiode1D field that changes the answer, with its default filled in.
+
+    Taken from the dataclass rather than retyped, so a new field cannot be added
+    to the device and quietly stay out of the lock file.
+    """
+    import dataclasses
+
+    from tarhan.models.pn1d import PNDiode1D
+
+    dev = PNDiode1D()
+    out = {}
+    for f in dataclasses.fields(dev):
+        if not f.init:                      # C0, delta, L_D are derived
+            continue
+        value = getattr(dev, f.name)
+        out[f.name] = "none" if value is None else value
+    return out
+
+
 #: capability id -> the callable that runs it. A capability absent from this map
 #: is not runnable from the CLI even if the registry calls it validated: being
 #: proven and being wired up are different facts and the error says which.
@@ -233,7 +253,11 @@ def _run_solve(out: cliout.Output, args) -> int:
                  "built. These are different things and this is the second.")
         return cliout.EXIT_UNAVAILABLE
 
-    inputs = {"bias_v": float(args.bias)}
+    # The RESOLVED problem, not just what was typed. Recording only the bias
+    # left input.lock.toml locking nothing — a run could not be reproduced from
+    # its own record, and two devices differing in doping shared a directory.
+    # Reported in review against the published version.
+    inputs = {"bias_v": float(args.bias), **_resolved_device()}
     solver = {"method": "gummel", "tol": float(args.tol),
               "max_iter": int(args.max_iter)}
     forge = _make_forge(out, ["SOLVE"], style="indicator",
@@ -546,8 +570,19 @@ def _should_show(flag: bool | None) -> bool:
     return True
 
 
-def main(argv: list[str] | None = None) -> int:
-    _force_utf8_stdio()
+def build_parser():
+    """The full argument grammar, built without running anything.
+
+    Split out of ``main`` so the documented commands can be checked
+    against the real parser rather than against a subprocess: appending
+    ``--help`` looks like a cheap way to do that, but argparse fires a
+    subparser's help before the parent reports an unrecognised global,
+    so it exits 0 on exactly the malformed line that started this
+    (``capabilities list --format json``).
+
+    Returns the parser and the three group parsers ``main`` falls back
+    to when a subcommand arrives without its verb.
+    """
     parser = argparse.ArgumentParser(
         prog="tarhan",
         description="TARHAN — physics-first materials simulator (pre-alpha)")
@@ -633,6 +668,15 @@ def main(argv: list[str] | None = None) -> int:
     p_demo.add_argument("--no-show", dest="show", action="store_false",
                         help="never open a window (headless/CI)")
 
+    return parser, {"capabilities": p_cap, "run": p_run,
+                    "compare": p_cmp}
+
+
+def main(argv: list[str] | None = None) -> int:
+    _force_utf8_stdio()
+    parser, groups = build_parser()
+    p_cap, p_run, p_cmp = (groups["capabilities"], groups["run"],
+                           groups["compare"])
     args = parser.parse_args(argv)
     out = cliout.Output(fmt=args.format, color=args.color, quiet=args.quiet)
 

@@ -212,7 +212,16 @@ def test_detail_refuses_to_write_prose_in_a_machine_format(fmt):
         out.detail("a human sentence")
 
 
-def test_colour_is_never_enabled_for_a_machine_format():
+def test_colour_is_never_enabled_for_a_machine_format(monkeypatch):
+    """NO_COLOR in the developer's environment must not decide this.
+
+    The suite passed in CI and failed locally under NO_COLOR=1, which means the
+    test was reading the machine it ran on rather than the code. Reported in
+    review; the variable is cleared so the assertion is about `auto`, not about
+    whoever is running it.
+    """
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
     class FakeTTY(io.StringIO):
         def isatty(self):
             return True

@@ -17,14 +17,17 @@ Two carry the weight:
   ``tomllib`` — the reader that will actually be used — rather than through a
   regex that would accept something merely TOML-shaped.
 """
+import hashlib
 import json
 import tomllib
 
 import numpy as np
 import pytest
 
-from tarhan.artifact import (FIELDS, RUN_FILES, ArtifactError, dumps_toml,
-                             read_run, run_id, write_run)
+import tarhan
+
+from tarhan.artifact import (FIELDS, RUN_FILES, ArtifactError, code_id,
+                             dumps_toml, read_run, run_id, write_run)
 
 INPUTS = {"bias_v": 0.3, "temperature_k": 300.0, "grid_points": 512,
           "srh": False, "contacts": ["anode", "cathode"],
@@ -45,12 +48,50 @@ def _write(tmp_path, **over):
 
 # --- the id is the content ------------------------------------------------
 
-def test_the_same_problem_lands_in_the_same_directory(tmp_path):
+def test_the_same_problem_and_the_same_code_land_in_the_same_directory(tmp_path):
     first = _write(tmp_path)
     second = _write(tmp_path)
     assert first == second
-    assert first.name == run_id(
+    problem, build = first.name.split("-")
+    assert problem == run_id(
         "semiconductor.pn.drift-diffusion.1d.steady", INPUTS, SOLVER)
+    assert build == code_id()
+
+
+def test_the_directory_separates_the_problem_from_the_code_that_ran_it(tmp_path):
+    """Two runs of one problem under different code are two different results.
+
+    Naming the directory by the problem alone meant the first was silently
+    overwritten by the second — reported in review, and the reason the build id
+    is part of the name rather than only recorded inside it.
+    """
+    path = _write(tmp_path)
+    manifest = json.loads((path / "manifest.json").read_text())
+    assert manifest["code_id"] == code_id()
+    assert manifest["environment"]["tarhan"] == tarhan.__version__
+    assert set(manifest["environment"]) >= {"tarhan", "python", "numpy", "scipy"}
+    assert path.name.endswith(manifest["code_id"])
+
+
+def test_every_file_the_manifest_points_at_is_checksummed(tmp_path):
+    """Hashing only the inputs left the results editable without trace."""
+    path = _write(tmp_path, stdout="solving\n")
+    manifest = json.loads((path / "manifest.json").read_text())
+    assert set(manifest["files"]) == {"input.lock.toml", "provenance.json",
+                                      "metrics.json", "stdout.log", "report.md"}
+    assert "manifest.json" not in manifest["files"], \
+        "the manifest cannot contain its own hash"
+
+
+@pytest.mark.parametrize("victim", ["metrics.json", "provenance.json",
+                                    "report.md"])
+def test_editing_a_result_after_the_run_is_caught(tmp_path, victim):
+    """The gap review found: the id covered the question, not the answer."""
+    path = _write(tmp_path)
+    target = path / victim
+    target.write_text(target.read_text() + "\n tampered\n")
+    with pytest.raises(ArtifactError, match="checksum"):
+        read_run(path)
 
 
 def test_a_changed_input_lands_somewhere_else():
@@ -162,6 +203,20 @@ def test_a_directory_edited_after_the_run_is_refused(tmp_path):
     path = _write(tmp_path)
     lock = path / "input.lock.toml"
     lock.write_text(lock.read_text().replace("bias_v = 0.3", "bias_v = 0.9"))
+
+    # The checksum sees it first, which is the cheaper and more general catch.
+    with pytest.raises(ArtifactError, match="checksum"):
+        read_run(path)
+
+    # Repair the checksum — the edit a forger would actually make — and the id
+    # check is what is left standing. Both are load-bearing: the checksum
+    # catches a changed file, the id catches a file changed together with its
+    # own bookkeeping.
+    manifest_path = path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"]["input.lock.toml"] = hashlib.sha256(
+        lock.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(ArtifactError, match="edited after the run"):
         read_run(path)
 

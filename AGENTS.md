@@ -64,7 +64,7 @@ figure instead. It will not block a CI job or an agent shell.
 ```bash
 tarhan capabilities list                      # every capability and its status
 tarhan capabilities show <capability-id>      # limits, evidence, or why it is blocked
-tarhan capabilities list --format json        # stdout is ONLY json; notes go to stderr
+tarhan --format json capabilities list        # stdout is ONLY json; notes go to stderr
 ```
 
 Read this before assuming a capability exists. A record marked `blocked` or
@@ -77,7 +77,8 @@ Two things matter when scripting it:
 
 - **stdout carries the result and nothing else.** Progress, notes, warnings and
   the anvil feedback always go to stderr, in every format including `table`.
-  So `tarhan capabilities list --format json | jq` is safe.
+  So `tarhan --format json capabilities list | jq` is safe. The global
+  flags come BEFORE the subcommand; argparse will not accept them after it.
 - **The exit status is the machine-readable half of the answer.** `0` success;
   `2` bad input, including an unknown capability id or two runs that cannot be
   compared; `3` the capability is blocked, merely planned, or validated but not

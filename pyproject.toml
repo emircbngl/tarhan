@@ -10,7 +10,7 @@ name = "tarhan"
 # with itself about what it is.  Stays on 0.y.z while the project calls itself
 # pre-alpha: under SemVer that is the version range where the API may still
 # break, which is the truthful claim here — see CHANGELOG.md.
-version = "0.2.0"
+version = "0.3.0.dev0"
 description = "Physics-first materials simulator: galvanic cells, fuel cells and semiconductor devices on one charged-species transport kernel"
 readme = "README.md"
 requires-python = ">=3.11"
