@@ -20,8 +20,9 @@ import time
 import pytest
 
 from tarhan import cliout
-from tarhan.forge import (COMPACT_WIDTH, FORGE_CELL, FORGE_CELL_ASCII, READY,
-                          Forge)
+from tarhan.forge import (COMPACT_ANVIL, COMPACT_HAMMER, COMPACT_STRIKE,
+                          COMPACT_WIDTH, FORGE_CELL, FORGE_CELL_ASCII,
+                          READY, Forge, tagline)
 
 
 class FakeTTY(io.StringIO):
@@ -241,6 +242,66 @@ def test_a_logged_line_scrolls_above_a_pinned_indicator():
     # Inside a scroll region the text scrolls by itself; nothing walks the
     # cursor back over it, which is what would erase it.
     assert "\x1b[1A" not in written.split("note: damping engaged")[1][:20]
+
+
+# --- the compact forge: shape as well as motion ---------------------------
+
+def test_the_compact_forge_reserves_four_rows_and_gives_them_back():
+    """One cell carries motion but not shape, so this trades rows for an anvil.
+
+    Four is the smallest ordinary-text footprint in which the horn, face, waist
+    and foot stay separately legible. The cost is four reserved rows instead of
+    one, and the danger is the same as ever: the region must be released.
+    """
+    out = cliout.Output(color="always", stdout=io.StringIO(), stderr=FakeTTY())
+    forge = Forge(["SOLVE"], out, style="compact", pin=True)
+    assert forge._pin_height == 4
+    with forge:
+        forge.begin("SOLVE", "newton")
+        forge.tick()
+        forge.converged("done")
+    written = out.stderr.getvalue()
+    assert "\x1b[2J" not in written
+    assert re.search(r"\x1b\[1;\d+r", written), "no scroll region was set"
+    assert "\x1b[r" in written, "the scroll region was never released"
+    assert out.stdout.getvalue() == ""
+
+
+def test_the_compact_band_is_four_rows_of_anvil():
+    forge, _ = _tty_forge(stages=("SOLVE",), style="compact", animate=False)
+    forge.begin("SOLVE", "newton")
+    block = forge._compact_block(110)
+    assert len(block) == len(COMPACT_ANVIL) == 4
+    joined = "\n".join(block)
+    assert "___________" in joined and "[#####]" in joined
+
+
+def test_the_spark_lands_on_the_contact_frame_only():
+    """Same rule as the one-cell field: a spark means metal was hit."""
+    assert sum("*" in row for frame in COMPACT_HAMMER for row in frame) == 1
+    assert "*" in COMPACT_HAMMER[COMPACT_STRIKE][2]
+
+
+def test_the_hammer_moves_and_the_anvil_does_not():
+    assert COMPACT_HAMMER[0] != COMPACT_HAMMER[1]
+    assert len(set(COMPACT_ANVIL)) == len(COMPACT_ANVIL)
+
+
+def test_the_tagline_is_exactly_as_wide_as_the_wordmark():
+    """The plate and the nameplate must read as one object, not two things
+    that happen to be stacked."""
+    from tarhan.forge import WORDMARK, WORDMARK_ASCII
+
+    plate = tagline()
+    assert len(plate) == len(WORDMARK_ASCII[0]) == len(WORDMARK[0])
+    assert READY in plate
+    assert plate.startswith("=") and plate.endswith("=")
+
+
+def test_an_unknown_style_is_refused():
+    out = cliout.Output(stderr=FakeTTY())
+    with pytest.raises(ValueError, match="style must be"):
+        Forge(["A"], out, style="fancy")
 
 
 # --- 2. progress is stages, never a clock ----------------------------------

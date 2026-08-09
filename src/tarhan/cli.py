@@ -18,6 +18,7 @@ from pathlib import Path
 
 from tarhan import __version__, cliout, physics
 from tarhan.capability_registry import CapabilityNotFound, all_capabilities, get
+from tarhan.forge import Forge
 from tarhan.numerics.diffusion1d import cottrell_fd_samples
 
 _CAP_COLUMNS = ("id", "status", "dimension", "time", "source")
@@ -127,7 +128,14 @@ def _make_forge(out: cliout.Output, stages, *, style: str, graphics: str,
     """
     from tarhan.forge_pixels import PixelForge
 
-    return PixelForge(stages, out, style=style, pin=pin, graphics=graphics)
+    forge = PixelForge(stages, out, style=style, pin=pin, graphics=graphics)
+    if style == "indicator" and not forge.graphics_available:
+        # Two backends, as the review concluded: the raster sprite where a
+        # terminal can show one, and the four-row ANSI forge everywhere else.
+        # One text cell can carry motion but not shape, so a terminal without
+        # inline graphics gets the taller drawing rather than a worse hint.
+        return Forge(stages, out, style="compact", pin=pin)
+    return forge
 
 
 def _capabilities_doctor(out: cliout.Output, graphics: str = "auto") -> int:

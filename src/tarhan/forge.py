@@ -88,6 +88,44 @@ STRIKE_CELL = 2
 #: Shown under the wordmark once the mark settles and the tools are loaded.
 READY = "READY TO FORGE"
 
+
+#: The compact forge: four ordinary text rows, from Codex's ANSI prototype.
+#:
+#: One cell cannot carry an anvil — that was the complaint the seven-cell field
+#: was already a compromise against, and it stays true. Four rows is the
+#: smallest footprint in which the horn, the flat face, the waist and the broad
+#: foot are separately readable. It costs four reserved rows instead of one,
+#: which is why it is opt-in rather than the default.
+COMPACT_ANVIL = (
+    "             ___________",
+    "  __________|___________|__________",
+    "             \\         /",
+    "           ___\\_______/___",
+)
+
+#: The hammer is the only moving mass, and it reaches the anvil on frame 2 —
+#: the same rule as the one-cell field, so a spark still means contact.
+COMPACT_HAMMER = (
+    ("[#####]", "      \\", "       \\", ""),
+    ("", "   [#####]", "        \\", ""),
+    ("", "", "      [#####]*", ""),
+    ("", "   [#####]", "        \\", ""),
+)
+COMPACT_STRIKE = 2
+
+
+def tagline(text: str = READY, width: int = None) -> str:
+    """An engraved plate exactly as wide as the wordmark.
+
+    A two-row micro font was tried first and did not stay legible at this
+    width; a shallow plate carries the same words in one row instead. The width
+    is taken from the wordmark so the mark reads as one object rather than two
+    things that happen to be stacked.
+    """
+    if width is None:
+        width = len(WORDMARK_ASCII[0])
+    return ("[ " + text.upper() + " ]").center(width, "=")
+
 # Orbitron-inspired geometry drawn as terminal cells, because a CLI cannot pick
 # the user's font.
 WORDMARK = (
@@ -237,9 +275,13 @@ class Forge:
         # "indicator" is the one line a long solve wants. "boot" keeps the full
         # mark on screen with the hammer working and a bar underneath — for the
         # one moment where the wait IS the subject: bringing the tools up.
-        if style not in ("indicator", "boot"):
-            raise ValueError(f"style must be 'indicator' or 'boot', got {style!r}")
+        if style not in ("indicator", "boot", "compact"):
+            raise ValueError(
+                f"style must be 'indicator', 'compact' or 'boot', got {style!r}")
         self.style = style
+        #: Rows the pinned band occupies. The compact forge needs its four.
+        self._pin_height = 4 if style == "compact" else 1
+        self._pin_top = 0
 
         tty = bool(getattr(self.stream, "isatty", lambda: False)())
         self.animate = (tty and not self.out.quiet) if animate is None else animate
@@ -311,14 +353,23 @@ class Forge:
     # --- pinning the indicator to the bottom row --------------------------
 
     def _engage_pin(self) -> None:
-        """Reserve the last row with DECSTBM so output scrolls above it."""
+        """Reserve the last ``_pin_height`` rows with DECSTBM.
+
+        One row is enough for the text cell. The compact forge needs four,
+        because that is the smallest ordinary-text footprint in which the horn,
+        face, waist and foot stay separately legible — which is exactly why the
+        one-cell indicator never read as an anvil.
+        """
         size = shutil.get_terminal_size((80, 24))
         rows = max(3, size.lines)
+        height = max(1, min(self._pin_height, rows - 2))   # always leave room
         self._pin_rows = rows
-        # Set the scrolling region to everything but the last row, then put the
-        # cursor inside it. Nothing is cleared: the region only changes where
+        self._pin_top = rows - height + 1
+        # Scroll region is everything above the reserved band; the cursor then
+        # goes inside it. Nothing is cleared — the region only changes where
         # subsequent scrolling happens.
-        self.stream.write(f"{ESC}1;{rows - 1}r{ESC}{rows - 1};1H")
+        self.stream.write(f"{ESC}1;{self._pin_top - 1}r"
+                          f"{ESC}{self._pin_top - 1};1H")
         self.stream.flush()
         self._pinned = True
 
@@ -492,6 +543,53 @@ class Forge:
         room = max(0, width - len(name) - len(joined) - 12)
         detail = (stage.detail if stage else "")[:room]
         return f"{cell} {self._paint(name, 'bold')}  {detail}  {tail}"
+
+    def _compact_block(self, width: int) -> List[str]:
+        """Four rows: the anvil, the hammer, and the same facts as the cell.
+
+        The one-cell field carries motion but not shape; this carries both, at
+        the cost of four reserved rows. Frame selection is identical, so the
+        spark still lands only on contact and still only advances on tick().
+        """
+        index = self._frame % len(COMPACT_HAMMER)
+        hammer = COMPACT_HAMMER[index]
+        stage = self._current
+        name = stage.name if stage else "READY"
+        elapsed = time.monotonic() - self._started
+        facts = [f"{elapsed:.1f}s"]
+        if self._within is not None:
+            facts.append(f"{round(self._within * 100)}% of {name.lower()}")
+        shown = self._index + 1 if self._index >= 0 else 1
+        facts.append(f"stage {shown}/{len(self.stages)}")
+        joined = self._sep.join(facts)
+
+        lines = []
+        for row, anvil in enumerate(COMPACT_ANVIL):
+            left = (hammer[row].ljust(14) + anvil).ljust(50)
+            # Row 2 is where the hammer meets the face, so that is the
+            # row the strike lights up. Writing this as `row == index`
+            # happened to be true for frame 2 and would have been a
+            # coincidence rather than a reason.
+            if index == COMPACT_STRIKE and row == 2:
+                left = self._paint(left, "reverse")
+            if row == 1:
+                right = self._paint(name, "bold") + "  " + \
+                    (stage.detail if stage else "")[:max(0, width - 60)]
+            elif row == 2:
+                right = self._paint("(" + joined + ")", "dim")
+            else:
+                right = ""
+            lines.append((left + "  " + right).rstrip() if right else left)
+        return lines
+
+    def _draw_pinned_block(self, lines: List[str]) -> None:
+        """Write a multi-row band into the reserved rows, without scrolling."""
+        out = [SAVE_CURSOR]
+        for offset, line in enumerate(lines[:self._pin_height]):
+            out.append(f"{ESC}{self._pin_top + offset};1H{ERASE_LINE}{line}")
+        out.append(RESTORE_CURSOR)
+        self.stream.write("".join(out))
+        self.stream.flush()
 
     def _logo(self, width: int, frame: Optional[int] = None,
               subtitle: str = "") -> List[str]:
@@ -669,6 +767,15 @@ class Forge:
 
         if self.style == "boot":
             self._blit(self._boot_block(width))
+            return
+
+        if self.style == "compact":
+            self._maybe_pin()
+            block = self._compact_block(width)
+            if self._pinned:
+                self._draw_pinned_block(block)
+            else:
+                self._blit(block)
             return
 
         self._maybe_pin()
