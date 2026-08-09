@@ -210,3 +210,59 @@ zorlanmış bir istisnayla tetiklendi.
 App. Hepsi P1 ve sonrası. Yol haritası §9 bunu açıkça sıralıyor; §11'in "ilk
 dilim" listesi ise P0+P1+TUI-1'i tek torbaya koyuyor — o listeyi olduğu gibi
 uygulamak bağımlılık sırasını çiğnerdi.
+
+## Codex incelemesi — üç tur (2026-08-09)
+
+Üç ayrı turda gelen dokuz bulgunun sekizi kapatıldı; biri bilerek kullanıcıya
+bırakıldı. Sayı: 469 → 481 → **488 passed, 4 xfailed**. Dört dilim ayrı ayrı
+yayınlandı, dördü de CI yeşil (`b7dff37`, `9c99b45`, `63420ec`, `2a49029`).
+
+**1. tur.** Sürüm sürüklenmesi (`pyproject` + `__init__` hâlâ 0.2.0 diyordu →
+0.3.0.dev0), artifact kimliği, README komutu, `NO_COLOR` testi.
+
+Artifact kimliği rapor edilenden kötüydü: `--bias 0.3` yalnızca `bias_v = 0.3`
+içeren bir lock yazıyordu, yani bir koşu **kendi kaydından** üretilemezdi. Dizin
+artık `<problem>-<build>`, lock 15 cihaz alanının hepsini taşıyor, manifest EN
+SON yazılıyor (checksum'ları diğer her şeyi kapsasın diye) ve `read_run`
+checksum'ları **ayrıştırmadan ÖNCE** doğruluyor — bozulmuş bir JSON aksi hâlde
+decode hatası olarak görünürdü, ki bu "dosya bozuk" der, oysa olan şey sonucun
+değişmiş olmasıdır.
+
+**Bu turun asıl dersi bir testin yanlış olmasıydı.** README komutlarını kilitleyen
+smoke testi önce alt sürece `--help` ekliyordu — ve **yazıldığı kusura karşı
+geçiyordu**: argparse, alt ayrıştırıcının help'ini, üst ayrıştırıcı tanınmayan
+global'i bildirmeden önce tetikliyor, dolayısıyla
+`capabilities list --format json --help` 0 ile çıkıyor. Yalnızca README'yi bozuk
+hâline geri çevirip **kırmızı beklediğim için** yakalandı. Yeşil görmek yetmez;
+kusuru geri koyup ısırdığını görmek gerekiyor. `cli.build_parser()` bu yüzden
+ayrıldı.
+
+**2. tur.** Build kimliği yalnız sürüm dizelerinden türüyordu — iki farklı commit
+aynı `0.3.0.dev0` altında aynı dizini paylaşabiliyordu. `source`: paketin kendi
+`.py` baytlarının sha256'sı. Kıyas sözleşmesine `build` eklendi (tek feragat
+edilebilir terim, `--allow-build-diff`), schema v1 dizinleri
+`unverified-legacy` diye etiketleniyor.
+
+**İmzalama yapılmadı, iddia geri çekildi.** Manifest imzasız: `metrics.json`'ı
+değiştirip yanındaki digest'i de güncelleyen yakalanmaz. Bu *kazara bozulma
+tespiti*, kurcalama koruması değil — ve sahteciliğin **GEÇTİĞİNİ** doğrulayan bir
+test var, ki güçlü iddia sessizce metne geri dönemesin.
+
+**3. tur — benim hatam.** Commit mesajı ve doküman "git commit bilerek
+hash'lenmiyor" diyordu; `code_id` ise tüm `env`'i, `git` dâhil hash'liyordu. Kod
+ile metin çelişiyordu ve **yanlış olan metindi** — bir cümlenin testin işini
+yaptığı yerde bu düz bir hatadan kötüdür. `git` artık adıyla dışlanıyor, üç
+parametreli test çiviliyor (farklı commit / kirli ağaç / hiç checkout yok).
+
+`CITATION.cff` 0.2.0'ı güncel gösteriyor ve main'in ilerlediğini söylemiyordu.
+Alanlar DOĞRUYDU (0.3.0.dev0'ın Zenodo arşivi yok), eksik olan açıklamaydı.
+Üç test: sürüm = en yeni CHANGELOG yayını (`__version__` DEĞİL), fark varsa
+dosya bunu söylemeli, her version DOI kendi lisansını taşımalı.
+
+**Bilinçli olarak yapılmayanlar.** Branch protection bir depo ayarı, dosya değil —
+sahibinin kararı. `source_id()` paketin tamamını hash'liyor: hiçbir çözümün
+import etmediği bir prototip bile build kimliğini oynatır. Kabul edildi ve
+gerekçesi yazıldı — bir çözümün hangi modülleri import ettiği çalıştırmadan
+belirlenemez, ve dar bir hash iki farklı çalışma ağacını aynı build sayardı.
+Bedeli de yazıldı: izlenmeyen bir dosya, yerel build kimliğini aynı commit için
+CI'ınkinden ayırır.
