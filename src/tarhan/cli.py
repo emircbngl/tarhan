@@ -512,6 +512,29 @@ BIAS_AXIS = "bias_v"
 SOLVER_TERMS = ("tol", "max_iter", "method")
 
 
+def _solver_numbers_or_status(out: cliout.Output, args, default_max_iter):
+    """Reject a solver contract that cannot mean anything, at the input gate.
+
+    ``--tol nan`` used to reach the solver and come back as exit 4, "did not
+    converge" — which blames the physics for a typo. A tolerance that is NaN,
+    infinite or non-positive is not a hard problem, it is a bad argument, and
+    the exit code has to say which. Reported in review.
+    """
+    tol = float(args.tol)
+    if not math.isfinite(tol) or tol <= 0.0:
+        out.error(f"--tol {args.tol}: must be finite and greater than zero")
+        return None
+    bias = float(args.bias)
+    if not math.isfinite(bias):
+        out.error(f"--bias {args.bias}: must be a finite voltage")
+        return None
+    max_iter = default_max_iter if args.max_iter is None else int(args.max_iter)
+    if max_iter <= 0:
+        out.error(f"--max-iter {max_iter}: must be at least one iteration")
+        return None
+    return {"tol": tol, "bias": bias, "max_iter": max_iter}
+
+
 def _runnable_or_status(out: cliout.Output, capability_id):
     """Resolve a capability to run, or say why it cannot be.
 
@@ -555,6 +578,18 @@ def _run_solve(out: cliout.Output, args) -> int:
     # Reported in review against the published version.
     runner = RUNNERS[cap.id]
     device_inputs = runner.device()
+    candidate_terms = {}
+    if bool(args.candidate) != bool(args.candidate_id):
+        # A --candidate-id with no file was ACCEPTED and the run went ahead on
+        # default material while provenance recorded the named candidate: a
+        # falsified scientific record, produced silently. Reported in review
+        # after a real run wrote {"candidate": "GHOST", "device": "PNDiode1D
+        # defaults"}. They are one input and must arrive together.
+        missing = "--candidate" if args.candidate_id else "--candidate-id"
+        out.error(f"{missing} is required alongside the other; a candidate id "
+                  "without a file would record a material that was never used")
+        return cliout.EXIT_INPUT
+
     if args.candidate:
         # The join that stops a candidate from being provenance-less JSON: a
         # material is real here only if a validated model can be run on it.
@@ -576,6 +611,13 @@ def _run_solve(out: cliout.Output, args) -> int:
         except cand.CandidateError as exc:
             out.error(str(exc))
             return cliout.EXIT_INPUT
+        # The material is part of the PROBLEM, not just of its narration. Two
+        # candidates whose four numbers coincide were landing in one directory
+        # and the second overwrote the first's provenance. Both the identity
+        # and a hash of the whole evidence record go into the inputs, so a
+        # re-measured candidate under the same id is also a different run.
+        candidate_terms = {"candidate": match.identifier,
+                           "candidate_fingerprint": cand.fingerprint(match)}
     if args.device:
         try:
             device_inputs = _merge_device(device_inputs,
@@ -584,11 +626,12 @@ def _run_solve(out: cliout.Output, args) -> int:
         except (ValueError, OSError) as exc:
             out.error(str(exc))
             return cliout.EXIT_INPUT
-    inputs = {"bias_v": float(args.bias), **device_inputs}
-    max_iter = (runner.default_max_iter if args.max_iter is None
-                else int(args.max_iter))
-    solver = {"method": runner.method, "tol": float(args.tol),
-              "max_iter": max_iter}
+    inputs = {"bias_v": float(args.bias), **device_inputs, **candidate_terms}
+    numbers = _solver_numbers_or_status(out, args, runner.default_max_iter)
+    if numbers is None:
+        return cliout.EXIT_INPUT
+    solver = {"method": runner.method, "tol": numbers["tol"],
+              "max_iter": numbers["max_iter"]}
     forge = _make_forge(out, ["SOLVE"], style="indicator",
                         graphics=args.graphics, pin="auto")
     try:
@@ -753,15 +796,23 @@ def _run_sweep(out: cliout.Output, args) -> int:
             out.error(str(exc))
             return cliout.EXIT_INPUT
 
+    if not args.vary:
+        # "one value is a solve" is already enforced per axis; a sweep with NO
+        # axis slipped past it and produced a cheerful one-point table, which
+        # contradicts the command's own contract. Reported in review.
+        out.error("a sweep needs at least one --vary NAME=V1,V2,...")
+        out.note("with nothing varying, `run solve` is the command you want")
+        return cliout.EXIT_INPUT
     axes = _parse_vary(args.vary, device_inputs, out)
     if axes is None:
         return cliout.EXIT_INPUT
 
     points = list(_sweep_points(axes))
-    max_iter = (runner.default_max_iter if args.max_iter is None
-                else int(args.max_iter))
-    solver = {"method": runner.method, "tol": float(args.tol),
-              "max_iter": max_iter}
+    numbers = _solver_numbers_or_status(out, args, runner.default_max_iter)
+    if numbers is None:
+        return cliout.EXIT_INPUT
+    solver = {"method": runner.method, "tol": numbers["tol"],
+              "max_iter": numbers["max_iter"]}
 
     rows, failures = [], 0
     forge = _make_forge(out, ["SWEEP"], style="indicator",

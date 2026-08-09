@@ -117,6 +117,22 @@ memory would be unverifiable numbers wearing the authority of a package.
 Candidates come from a file you supply; a test asserts no data file appears in
 the package, so adding one is a decision somebody has to argue for.
 
+**Units are physics, not labels.** Each solver-facing property has a canonical
+unit (`ni` cm^-3, `eps_s` F/cm, `mu_n`/`mu_p` cm^2/Vs, `tau_*` s), and a value
+arrives in that unit or in a listed alias (`m^-3`, `F/m`, `m^2/Vs`, `ms|us|ns`)
+and is converted on load — **uncertainty through the same conversion**. Any
+other unit is refused: `mu_n = 3 kg` used to be accepted and handed to the
+solver as a bare `3.0`. Thresholds may carry a unit (`mu_n>=0.1m^2/Vs`) and are
+converted the same way; a bound with no unit is taken as canonical, and the
+verdict line states which unit the comparison was made in.
+
+**The material is part of the problem's identity.** A candidate-driven run
+hashes the candidate id *and* a fingerprint of its whole evidence record, so
+two materials with equal nominal numbers get two directories, and the same id
+re-issued with a better measurement is a different run. `--candidate` and
+`--candidate-id` are a required pair: an id alone used to run on default
+material while provenance named the candidate.
+
 Two behaviours are the point of the whole thing:
 
 * **Uncertainty can make a threshold undecidable.** `mu_n = 1000 ± 50` against

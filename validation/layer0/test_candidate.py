@@ -27,7 +27,8 @@ import pytest
 
 from tarhan.candidate import (BASES, Candidate, CandidateError, Property,
                               Threshold, applicability, device_overrides,
-                              judge, load_candidates, parse_threshold, screen)
+                              fingerprint, judge, load_candidates,
+                              parse_threshold, screen)
 
 PN1D = "semiconductor.pn.drift-diffusion.1d.steady"
 
@@ -45,7 +46,7 @@ def synth(identifier="SYNTH-A", **properties):
 
 def test_a_number_without_a_unit_is_not_a_property():
     """1350 is not a mobility. The unit is not metadata."""
-    with pytest.raises(CandidateError, match="no unit"):
+    with pytest.raises(CandidateError, match="not a property"):
         Property(value=1350.0, unit="", basis="computed")
 
 
@@ -302,3 +303,130 @@ def test_no_material_database_ships_with_the_package():
 
 def test_the_bases_are_the_roadmaps_three():
     assert BASES == ("measured", "computed", "inferred")
+
+
+# --- units are physics, not labels ----------------------------------------
+#
+# Reported in review, with a real run: ni in seconds, eps_s in eV, mu_p in
+# "bananas", and the candidate came back "usable" with the bare numbers handed
+# straight to the solver. Units were checked only for emptiness.
+
+@pytest.mark.parametrize("unit", ["seconds", "eV", "kg", "bananas", "m/s", ""])
+def test_a_unit_that_is_not_a_unit_of_the_property_is_refused(unit):
+    with pytest.raises(CandidateError):
+        Candidate("SYNTH-X", {"mu_n": Property(3.0, unit, "computed")})
+
+
+@pytest.mark.parametrize("unit", [123, None, 1.5, ["cm^2/Vs"]])
+def test_a_unit_that_is_not_even_a_string_is_refused(unit):
+    """`unit = 123` was accepted, and is indistinguishable from a real unit to
+    every check downstream."""
+    with pytest.raises(CandidateError, match="non-empty string"):
+        Property(3.0, unit, "computed")
+
+
+def test_two_spellings_of_one_mobility_are_one_mobility():
+    """0.1 m^2/Vs and 1000 cm^2/Vs are the same material.
+
+    Before the unit table the first solved a material ten thousand times
+    slower than the one described, silently.
+    """
+    metric = Candidate("SYNTH-M", {"mu_n": Property(0.1, "m^2/Vs", "computed")})
+    cgs = Candidate("SYNTH-C", {"mu_n": Property(1000.0, "cm^2/Vs", "computed")})
+    assert metric.properties["mu_n"].value == cgs.properties["mu_n"].value
+    assert metric.properties["mu_n"].unit == "cm^2/Vs"
+
+
+def test_the_uncertainty_is_converted_with_the_value():
+    """Converting the value and leaving the spread behind would turn
+    +/- 0.005 m^2/Vs into +/- 0.005 cm^2/Vs — a bound narrowed by four orders
+    of magnitude, corrupting exactly the decisions the spread exists for."""
+    converted = Candidate("SYNTH-U", {
+        "mu_n": Property(0.1, "m^2/Vs", "computed", uncertainty=0.005)})
+    prop_ = converted.properties["mu_n"]
+    assert (prop_.value, prop_.uncertainty) == (1000.0, 50.0)
+    assert prop_.interval == (950.0, 1050.0)
+
+
+@pytest.mark.parametrize("name,good,bad", [
+    ("ni", "cm^-3", "F/cm"),
+    ("eps_s", "F/cm", "cm^-3"),
+    ("mu_p", "cm^2/Vs", "s"),
+])
+def test_each_property_accepts_only_its_own_dimension(name, good, bad):
+    Candidate("SYNTH-OK", {name: Property(1.0, good, "computed")})
+    with pytest.raises(CandidateError):
+        Candidate("SYNTH-BAD", {name: Property(1.0, bad, "computed")})
+
+
+def test_a_threshold_may_carry_a_unit_and_is_converted_too():
+    """A bound in m^2/Vs compared against a value in cm^2/Vs was the reported
+    defect; silence about which unit the comparison used is how it stayed
+    invisible."""
+    metric = parse_threshold("mu_n>=0.1m^2/Vs")
+    cgs = parse_threshold("mu_n>=1000")
+    assert metric.bound == cgs.bound == 1000.0
+    assert metric.unit == "cm^2/Vs"
+
+
+def test_a_threshold_in_a_nonsense_unit_is_refused():
+    with pytest.raises(CandidateError, match="not a unit of this property"):
+        parse_threshold("mu_n>=1000kg")
+
+
+def test_the_verdict_says_which_unit_it_compared_in():
+    detail = judge(synth(mu_n=prop(1200.0)), parse_threshold("mu_n>=1000")).detail
+    assert "cm^2/Vs" in detail
+
+
+def test_a_property_outside_the_table_is_left_alone():
+    """The table constrains what can reach a SOLVER. A candidate may carry
+    anything else it likes; it simply cannot be fed to a model on the strength
+    of it."""
+    free = Candidate("SYNTH-F", {"hardness": Property(9.0, "Mohs", "measured",
+                                                      source="synthetic")})
+    assert free.properties["hardness"].unit == "Mohs"
+
+
+# --- valid_range must at least be a range ---------------------------------
+
+def test_a_valid_range_that_is_not_a_table_is_refused():
+    """`valid_range = "anything"` was accepted. Whether the range is ENFORCED
+    is a separate open question, but storing a string where a table belongs
+    guarantees it never can be."""
+    with pytest.raises(CandidateError, match="valid_range"):
+        Property(1.0, "cm^2/Vs", "computed", valid_range="anything")
+
+
+# --- the evidence is part of the problem's identity -----------------------
+
+def test_two_candidates_with_equal_numbers_are_still_two_candidates():
+    """Measured in review: SYNTH-A and SYNTH-B both landed on 8265fbf2116f,
+    and the second overwrote the first's directory and provenance."""
+    shared = {"ni": Property(1e10, "cm^-3", "computed"),
+              "mu_n": Property(1000.0, "cm^2/Vs", "computed")}
+    a = Candidate("SYNTH-A", dict(shared))
+    b = Candidate("SYNTH-B", dict(shared))
+    assert fingerprint(a) != fingerprint(b)
+
+
+def test_the_same_id_with_better_evidence_is_a_different_fingerprint():
+    """The identifier alone would not be enough: an id can be re-issued with a
+    better measurement behind it, and those are two different pieces of
+    evidence that must not share a directory."""
+    rough = Candidate("SYNTH-A", {"mu_n": Property(1000.0, "cm^2/Vs",
+                                                   "inferred")})
+    better = Candidate("SYNTH-A", {"mu_n": Property(1000.0, "cm^2/Vs",
+                                                    "measured",
+                                                    source="synthetic",
+                                                    uncertainty=5.0)})
+    assert fingerprint(rough) != fingerprint(better)
+
+
+def test_an_identical_record_fingerprints_identically():
+    """Otherwise re-running the same candidate would never reuse its
+    directory, and the id would stop meaning anything."""
+    def build():
+        return Candidate("SYNTH-A", {"mu_n": Property(1000.0, "cm^2/Vs",
+                                                      "computed")})
+    assert fingerprint(build()) == fingerprint(build())

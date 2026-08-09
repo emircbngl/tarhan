@@ -53,6 +53,65 @@ class CandidateError(ValueError):
     """A candidate that cannot be reasoned about."""
 
 
+#: Canonical unit per property, and the alternative spellings accepted for it
+#: with the factor that converts INTO the canonical unit.
+#:
+#: Why this table has to exist: units used to be checked only for emptiness.
+#: ``mu_n = 0.1 m^2/Vs`` and ``mu_n = 1000 cm^2/Vs`` are the same mobility, and
+#: the raw number went to the solver either way — so the first silently solved
+#: a material ten thousand times slower than the one described. Worse,
+#: ``mu_n = 3 kg`` was accepted and passed through, and so was ``unit = 123``.
+#: Reported in review with a real run: ni in seconds, eps_s in eV, mu_p in
+#: bananas, and the candidate came back "usable".
+#:
+#: Every factor below is an exact decimal relation between metric prefixes, so
+#: each is written with its derivation and can be checked by reading:
+#:   1 m = 100 cm  =>  1 m^3 = 1e6 cm^3  =>  1 m^-3 = 1e-6 cm^-3
+#:   1 m^2 = 1e4 cm^2                    =>  1 m^2/Vs = 1e4 cm^2/Vs
+#:   1 m = 100 cm                        =>  1 F/m = 1e-2 F/cm
+#: NOT verified by physics_verify (the physicist server is unavailable); they
+#: are arithmetic on the definition of "centi", stated here so the arithmetic
+#: is the thing under review rather than a remembered constant.
+PROPERTY_UNITS = {
+    "ni":     ("cm^-3",     {"m^-3": 1e-6}),
+    "eps_s":  ("F/cm",      {"F/m": 1e-2}),
+    "mu_n":   ("cm^2/Vs",   {"m^2/Vs": 1e4}),
+    "mu_p":   ("cm^2/Vs",   {"m^2/Vs": 1e4}),
+    "tau_n":  ("s",         {"ms": 1e-3, "us": 1e-6, "ns": 1e-9}),
+    "tau_p":  ("s",         {"ms": 1e-3, "us": 1e-6, "ns": 1e-9}),
+    "band_gap": ("eV",      {"meV": 1e-3}),
+}
+
+
+def canonical_unit(name: str):
+    """The unit a property is stored and compared in, or None if unconstrained."""
+    entry = PROPERTY_UNITS.get(name)
+    return None if entry is None else entry[0]
+
+
+def to_canonical(name: str, value: float, unit: str) -> float:
+    """Convert a value into the property's canonical unit, or refuse.
+
+    Refusing is the whole point. A property this package knows how to feed to a
+    solver may only arrive in a unit this package knows how to read; anything
+    else is a number whose magnitude nobody has established.
+    """
+    entry = PROPERTY_UNITS.get(name)
+    if entry is None:
+        return value
+    canonical, aliases = entry
+    if unit == canonical:
+        return value
+    if unit in aliases:
+        return value * aliases[unit]
+    raise CandidateError(
+        f"{name}: unit {unit!r} is not a unit of this property. Give it in "
+        f"{canonical}" + (f" or {', '.join(sorted(aliases))}" if aliases
+                          else "") +
+        " — the value would otherwise reach the solver as a bare number whose "
+        "magnitude nobody has established")
+
+
 @dataclass(frozen=True)
 class Property:
     """One physical property, with everything needed to weigh it."""
@@ -68,9 +127,16 @@ class Property:
         if not isinstance(self.value, (int, float)) or \
                 isinstance(self.value, bool) or not math.isfinite(self.value):
             raise CandidateError(f"value={self.value!r}: must be a finite number")
-        if not self.unit or not str(self.unit).strip():
+        if not isinstance(self.unit, str) or not self.unit.strip():
+            # `unit = 123` was accepted before this line: not merely useless,
+            # but indistinguishable from a real unit to every check downstream.
             raise CandidateError(
-                f"a value of {self.value} with no unit is not a property")
+                f"a value of {self.value} with unit {self.unit!r} is not a "
+                "property; the unit must be a non-empty string")
+        if not isinstance(self.valid_range, Mapping):
+            raise CandidateError(
+                f"valid_range={self.valid_range!r}: must be a table of "
+                "condition -> [low, high]")
         if self.basis not in BASES:
             raise CandidateError(
                 f"basis={self.basis!r}: must be one of {', '.join(BASES)}. A "
@@ -91,6 +157,24 @@ class Property:
                 f"a measured value ({self.value} {self.unit}) must name its "
                 "source; 'measured' without provenance is the strongest claim "
                 "with the least behind it")
+
+    def in_canonical(self, name: str) -> "Property":
+        """This property converted into ``name``'s canonical unit.
+
+        The uncertainty goes through the SAME conversion. Converting the value
+        and leaving the spread behind would turn +/- 200 cm^2/Vs into +/- 200
+        m^2/Vs and silently widen a bound by four orders of magnitude, which
+        would corrupt exactly the screening decisions the spread exists for.
+        """
+        canonical = canonical_unit(name)
+        if canonical is None or self.unit == canonical:
+            return self
+        factor = to_canonical(name, 1.0, self.unit)
+        return Property(
+            value=self.value * factor, unit=canonical, basis=self.basis,
+            uncertainty=(None if self.uncertainty is None
+                         else self.uncertainty * factor),
+            source=self.source, valid_range=self.valid_range)
 
     @property
     def interval(self) -> Tuple[float, float]:
@@ -117,10 +201,20 @@ class Candidate:
             raise CandidateError(
                 f"{self.identifier}: a candidate with no properties cannot be "
                 "screened, ranked or fed to a model")
+        canonical = {}
         for name, prop in self.properties.items():
             if not isinstance(prop, Property):
                 raise CandidateError(
                     f"{self.identifier}.{name} is not a Property")
+            try:
+                canonical[name] = prop.in_canonical(name)
+            except CandidateError as exc:
+                raise CandidateError(f"{self.identifier}: {exc}") from None
+        # Normalised HERE, once, so that every consumer downstream — screening,
+        # device overrides, the artifact lock file — is comparing numbers in
+        # one unit. Converting at each use site would mean a use site that
+        # forgot to convert, which is the bug this whole table exists to close.
+        object.__setattr__(self, "properties", canonical)
 
     def get(self, name: str) -> Optional[Property]:
         return self.properties.get(name)
@@ -191,6 +285,42 @@ def device_overrides(candidate: Candidate,
             for name in MATERIAL_PARAMETERS[capability_id]}
 
 
+def fingerprint(candidate: Candidate) -> str:
+    """A hash of everything the candidate CLAIMS, not just what it computes to.
+
+    Two candidates with the same four nominal numbers produced the same run id
+    and the second silently overwrote the first's directory and provenance —
+    measured in review: SYNTH-A and SYNTH-B both landed on 8265fbf2116f. The
+    artifact id hashes the effective inputs, and the effective inputs are bare
+    floats, so identity, source, basis, uncertainty and validity range all
+    vanished from it.
+
+    The identifier alone would not be enough either: the same id can be
+    re-issued with a better measurement behind it, and those are two different
+    pieces of evidence that must not share a directory. So the whole record is
+    hashed.
+    """
+    import hashlib
+
+    payload = {"identifier": candidate.identifier,
+               "composition": candidate.composition,
+               "structure": candidate.structure,
+               "dimensionality": candidate.dimensionality,
+               "properties": {
+                   name: {"value": prop.value, "unit": prop.unit,
+                          "basis": prop.basis,
+                          "uncertainty": prop.uncertainty,
+                          "source": prop.source,
+                          "valid_range": {k: list(v) if isinstance(v, (list,
+                                                                      tuple))
+                                          else v
+                                          for k, v in prop.valid_range.items()}}
+                   for name, prop in sorted(candidate.properties.items())}}
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                      allow_nan=False, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:12]
+
+
 # --- screening ------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -200,6 +330,7 @@ class Threshold:
     prop: str
     op: str                    # ">=" or "<="
     bound: float
+    unit: str = ""             # the unit the bound is expressed in, canonical
 
     def __post_init__(self):
         if self.op not in (">=", "<="):
@@ -253,7 +384,8 @@ def judge(candidate: Candidate, threshold: Threshold) -> Judgement:
 
     spread = "" if prop.uncertainty is None else f" +/- {prop.uncertainty:g}"
     detail = (f"{threshold.prop} = {prop.value:g}{spread} {prop.unit} "
-              f"({prop.basis}) against {threshold.op} {threshold.bound:g}")
+              f"({prop.basis}) against {threshold.op} {threshold.bound:g}"
+              f"{' ' + threshold.unit if threshold.unit else ''}")
     if verdict == "undecided":
         detail += " - the uncertainty straddles the bound"
     return Judgement(threshold, verdict, detail)
@@ -352,17 +484,40 @@ def load_candidates(path) -> Tuple[Candidate, ...]:
 
 
 def parse_threshold(text: str) -> Threshold:
-    """``mu_n>=1000`` into a Threshold."""
+    """``mu_n>=1000`` or ``mu_n>=0.1 m^2/Vs`` into a canonical Threshold.
+
+    A bound may carry a unit, and if it does it is converted the same way a
+    candidate's value is. A bound with NO unit is taken as already canonical —
+    and the Threshold records which unit that was, so a screen report can say
+    what the comparison was actually made in rather than leaving the reader to
+    assume. Comparing a bound against a value in a different unit was the
+    reported defect; silence about the unit is how it stayed invisible.
+    """
     for op in (">=", "<="):
         if op in text:
-            name, _, bound = text.partition(op)
+            name, _, rest = text.partition(op)
             name = name.strip()
+            rest = rest.strip()
             if not name:
                 raise CandidateError(f"{text!r}: no property named")
+
+            number, unit = rest, ""
+            for cut in range(len(rest), 0, -1):
+                try:
+                    float(rest[:cut])
+                except ValueError:
+                    continue
+                number, unit = rest[:cut], rest[cut:].strip()
+                break
             try:
-                return Threshold(name, op, float(bound))
+                bound = float(number)
             except ValueError:
-                raise CandidateError(f"{text!r}: {bound!r} is not a number")
+                raise CandidateError(
+                    f"{text!r}: {rest!r} is not a number") from None
+            if unit:
+                bound = to_canonical(name, bound, unit)
+            return Threshold(name, op, bound,
+                             unit=canonical_unit(name) or unit)
     raise CandidateError(
         f"{text!r}: expected NAME>=VALUE or NAME<=VALUE. A hard screen is a "
         "bound; anything softer belongs in ranking")

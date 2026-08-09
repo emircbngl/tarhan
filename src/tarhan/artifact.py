@@ -391,6 +391,14 @@ def read_run(path) -> Dict[str, Any]:
     # otherwise surface as a decode error, which says the file is malformed
     # when what actually happened is that its contents changed.
     schema = manifest.get("schema_version", 1)
+    if schema > SCHEMA_VERSION:
+        # Reading a newer directory with an older parser means guessing at
+        # fields this version has never heard of and reporting the result as
+        # if it had understood them. Refusing names the version instead.
+        raise ArtifactError(
+            f"{path}: written by schema v{schema}, and this build reads up to "
+            f"v{SCHEMA_VERSION}. Upgrade tarhan rather than reading it with a "
+            "parser that has never seen those fields")
     recorded_files = manifest.get("files") or {}
     if schema < SCHEMA_VERSION or not recorded_files:
         # A pre-checksum directory. Iterating an absent `files` map checks

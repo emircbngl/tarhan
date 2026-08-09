@@ -71,6 +71,17 @@ class PNDiode1D:
             v = getattr(self, name)
             if v is not None and not (v > 0.0 and math.isfinite(v)):
                 raise ValueError(f"{name}={v}: must be positive and finite")
+        # gamma < 1 SHRINKS the step away from the junction, so build_grid's
+        # `while xs[-1] < length` walk converges to a point short of the
+        # boundary and never terminates. Measured: PNDiode1D(gamma=0.5)
+        # constructed without complaint and build_grid did not return within a
+        # 2 s alarm. The identical guard was written into the 2D mesh
+        # generator and never backported here, which is exactly the kind of
+        # gap a second pair of eyes finds.
+        if not math.isfinite(self.gamma) or self.gamma < 1.0:
+            raise ValueError(
+                f"gamma={self.gamma}: must be finite and >= 1, or the grid "
+                "never reaches the contact")
         self.C0 = max(self.Na, self.Nd)
         self.delta = self.ni / self.C0
         self.L_D = math.sqrt(self.eps_s * self.ut / (self.q * self.C0))
@@ -83,7 +94,17 @@ class PNDiode1D:
         def side(length):
             xs, h = [0.0], self.h0
             while xs[-1] < length:
-                xs.append(min(xs[-1] + h, length))
+                nxt = min(xs[-1] + h, length)
+                # Belt and braces. gamma >= 1 is checked at construction, but
+                # floating point can still stall the walk if h underflows
+                # relative to xs[-1]. A loop that stops making progress must
+                # fail, not spin: a CI job that hangs looks like a slow one
+                # until it times out.
+                if not (nxt > xs[-1]):
+                    raise ValueError(
+                        f"grid step stopped making progress at x={xs[-1]:g} "
+                        f"with h={h:g}; h0 is too small for this length")
+                xs.append(nxt)
                 h *= self.gamma
             return xs
 

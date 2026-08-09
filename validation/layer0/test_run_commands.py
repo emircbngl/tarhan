@@ -814,3 +814,90 @@ def test_a_screen_with_no_threshold_is_refused(tmp_path):
     proc = run("candidate", "screen", "--from", _candidates(tmp_path))
     assert proc.returncode == cliout.EXIT_INPUT
     assert "at least one --require" in proc.stderr
+
+
+# --- the ghost candidate, and the other input-gate findings ---------------
+
+@pytest.mark.parametrize("extra,expected", [
+    (["--candidate-id", "GHOST"], "--candidate is required"),
+    (["--candidate", "CANDFILE"], "--candidate-id is required"),
+])
+def test_a_candidate_id_without_its_file_is_refused(tmp_path, extra, expected):
+    """The worst defect this project can ship: a FALSIFIED record.
+
+    `--candidate-id GHOST` with no file was accepted, the solve ran on default
+    material, and the artifact recorded {"candidate": "GHOST", "device":
+    "PNDiode1D defaults"} — a scientific record naming a material that was
+    never used, produced in silence. Reported in review from a real run.
+    """
+    extra = [str(_candidates(tmp_path)) if a == "CANDFILE" else a
+             for a in extra]
+    out_dir = tmp_path / "runs"
+    proc = run("run", "solve", PN1D, *extra, "--output", str(out_dir))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert expected in proc.stderr
+    assert not out_dir.exists(), "a run that names a phantom material ran anyway"
+
+
+def test_two_candidates_with_equal_numbers_get_two_directories(tmp_path):
+    """Measured in review: two candidates whose four values coincided landed
+    on one run id, and the second overwrote the first's provenance."""
+    twins = tmp_path / "twins.toml"
+    body = "\n".join(
+        f"[SYNTH-{tag}]\n"
+        f"[SYNTH-{tag}.properties.ni]\nvalue = 1e10\nunit = \"cm^-3\"\n"
+        f"basis = \"computed\"\n"
+        f"[SYNTH-{tag}.properties.eps_s]\nvalue = 1e-12\nunit = \"F/cm\"\n"
+        f"basis = \"computed\"\n"
+        f"[SYNTH-{tag}.properties.mu_n]\nvalue = 1000.0\n"
+        f"unit = \"cm^2/Vs\"\nbasis = \"computed\"\n"
+        f"[SYNTH-{tag}.properties.mu_p]\nvalue = 400.0\n"
+        f"unit = \"cm^2/Vs\"\nbasis = \"computed\"\n" for tag in ("A", "B"))
+    twins.write_text(body, encoding="utf-8")
+
+    ids = []
+    for tag in ("A", "B"):
+        record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                                "--candidate", str(twins), "--candidate-id",
+                                f"SYNTH-{tag}", "--output",
+                                str(tmp_path)).stdout)[0]
+        ids.append(record["run_id"])
+    assert ids[0] != ids[1]
+    assert all((tmp_path / i).is_dir() for i in ids)
+
+
+@pytest.mark.parametrize("flag,value", [
+    ("--tol", "nan"), ("--tol", "inf"), ("--tol", "0"),
+    ("--bias", "nan"), ("--bias", "inf"), ("--max-iter", "0"),
+])
+def test_a_solver_number_that_cannot_mean_anything_is_input_not_failure(
+        tmp_path, flag, value):
+    """`--tol nan` came back as exit 4, "did not converge" — which blames the
+    physics for a typo. It is a bad argument and the exit code must say so."""
+    proc = run("run", "solve", PN1D, flag, value, "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert proc.returncode != cliout.EXIT_NO_CONVERGENCE
+
+
+def test_a_sweep_with_no_axis_is_refused(tmp_path):
+    """"One value is a solve" was enforced per axis, but NO axis slipped past
+    and produced a cheerful one-point table."""
+    proc = run("run", "sweep", PN1D, "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "at least one --vary" in proc.stderr
+
+
+def test_a_run_from_a_future_schema_is_refused_not_guessed_at(tmp_path):
+    """Reading a newer directory with an older parser means guessing at fields
+    this build has never seen and reporting the result as if it understood
+    them."""
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--output", str(tmp_path)).stdout)[0]
+    manifest_path = tmp_path / record["run_id"] / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = 99
+    manifest_path.write_text(json.dumps(manifest))
+
+    proc = run("run", "show", record["run_id"], "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "schema v99" in proc.stderr
