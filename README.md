@@ -7,10 +7,18 @@
 cells and semiconductor devices, built on a single charged-species transport kernel
 (finite-volume + Scharfetter–Gummel + damped Newton).
 
-> **Status: pre-alpha.** There is no solver product here yet — deliberately. TARHAN is
-> being built *validation-first*: the Layer-0 reproduction catalog below comes before
-> the engine, so every piece of physics that later enters the kernel already has a
-> pinned, source-cited test.
+> **Status: pre-alpha.** TARHAN is built *validation-first*: the Layer-0 reproduction
+> catalog below comes before the engine, so every piece of physics that enters the
+> kernel already has a pinned, source-cited test.
+>
+> There **is** a solver surface now — `run solve`, `run sweep`, `candidate screen`,
+> and run artifacts that record what produced them — but it is narrow, and the
+> narrowness is the point. Two capabilities are wired to the CLI (1D and 2D steady
+> pn drift-diffusion); the 2D device is one generated shape, an axis-aligned
+> rectangular diode. Transient is validated but not wired. MOS C–V, MOSFET and 3D
+> are blocked with measured reasons. `tarhan capabilities list` is the authority on
+> all of this, not this paragraph — and it exits non-zero when you ask it to run
+> something it cannot.
 
 Named after **Tarhan**, protector of forges and metalworkers in Turkic mythology
 (depicted with hammer and anvil).
@@ -27,6 +35,12 @@ tarhan demo --save iv.png   # ...or write the plot to a file (CI, servers)
 tarhan capabilities list                 # what the engine can do, and what it cannot
 tarhan capabilities show <id>            # limits, measured evidence, or why it is blocked
 tarhan --format json capabilities list   # stdout is ONLY json; notes go to stderr
+
+tarhan run solve <capability-id> --bias 0.3 --output runs/   # solve, and keep the result
+tarhan run show <run-id> --full --output runs/               # what produced those numbers
+tarhan run sweep <capability-id> --vary bias_v=0.2,0.3,0.4 --output runs/
+tarhan candidate screen --from candidates.toml --require mu_n>=1000
+
 pytest                      # run the Layer-0 validation catalog
 ```
 

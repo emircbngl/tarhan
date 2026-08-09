@@ -901,3 +901,157 @@ def test_a_run_from_a_future_schema_is_refused_not_guessed_at(tmp_path):
     proc = run("run", "show", record["run_id"], "--output", str(tmp_path))
     assert proc.returncode == cliout.EXIT_INPUT
     assert "schema v99" in proc.stderr
+
+
+# --- the rest of the audit ------------------------------------------------
+
+def test_a_device_file_may_not_overwrite_a_candidates_material(tmp_path):
+    """Same failure as the ghost candidate: a run whose provenance overstates
+    what was solved. The device file was applied AFTER the candidate, so
+    mu_n=99 was solved while provenance still said SYNTH-A."""
+    device = tmp_path / "clash.toml"
+    device.write_text("mu_n = 99.0\n", encoding="utf-8")
+    out_dir = tmp_path / "runs"
+    proc = run("run", "solve", PN1D, "--candidate", _candidates(tmp_path),
+               "--candidate-id", "SYNTH-A", "--device", str(device),
+               "--output", str(out_dir))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "mu_n" in proc.stderr and "SYNTH-A" in proc.stderr
+    assert not out_dir.exists()
+
+
+def test_a_device_file_that_does_not_clash_still_works(tmp_path):
+    """The refusal must be about the OVERLAP, not about using both files."""
+    device = tmp_path / "geometry.toml"
+    device.write_text("len_p = 4e-4\n", encoding="utf-8")
+    proc = run("run", "solve", PN1D, "--candidate", _candidates(tmp_path),
+               "--candidate-id", "SYNTH-A", "--device", str(device),
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK, proc.stderr
+
+
+def test_the_artifact_says_the_solve_was_nominal_only(tmp_path):
+    """The screen uses each spread; the solve takes the nominal value alone.
+    Defensible choice, indefensible silence."""
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--candidate", _candidates(tmp_path),
+                            "--candidate-id", "SYNTH-A",
+                            "--output", str(tmp_path)).stdout)[0]
+    provenance = json.loads(
+        (tmp_path / record["run_id"] / "provenance.json").read_text())
+    assert provenance["uncertainty_treatment"] == "nominal-only"
+
+
+def test_a_stale_field_file_does_not_survive_a_rerun(tmp_path):
+    """Re-running a problem whose new result has no field data left the old
+    fields.npz in place, and the fresh manifest checksummed it — so the run
+    claimed field data it never produced."""
+    from tarhan import artifact
+
+    import numpy as np
+
+    kwargs = dict(capability="cap.x.1d.steady", capability_status="validated",
+                  inputs={"a": 1.0}, solver={"m": "g"}, metrics={"j": 1.0},
+                  provenance={"p": "q"}, status="converged", command="c",
+                  version="0")
+    first = artifact.write_run(tmp_path, **kwargs,
+                               fields_data={"psi": np.zeros(4)})
+    assert (first / "fields.npz").exists()
+    second = artifact.write_run(tmp_path, **kwargs)
+    assert first == second
+    assert not (second / "fields.npz").exists()
+
+    manifest = json.loads((second / "manifest.json").read_text())
+    assert "fields.npz" not in manifest["files"]
+    assert artifact.read_run(second)["integrity"] == "verified"
+    assert [p.name for p in tmp_path.iterdir()] == [second.name], \
+        "a staging or displaced directory was left behind"
+
+
+def test_the_recorded_command_can_be_pasted_back(tmp_path):
+    """The manifest recorded `tarhan run solve <capability>` and dropped the
+    bias, tolerance, candidate and device — so a run could not be re-issued
+    from its own record, which is the one thing the field is for."""
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--bias", "0.35", "--tol", "1e-8",
+                            "--output", str(tmp_path)).stdout)[0]
+    command = json.loads(
+        (tmp_path / record["run_id"] / "manifest.json").read_text())["command"]
+    assert "--bias 0.35" in command and "--tol 1e-8" in command
+    assert PN1D in command
+
+
+def test_run_show_full_reopens_the_whole_run(tmp_path):
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--candidate", _candidates(tmp_path),
+                            "--candidate-id", "SYNTH-A",
+                            "--output", str(tmp_path)).stdout)[0]
+    proc = run("--format", "json", "run", "show", record["run_id"], "--full",
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    rows = json.loads(proc.stdout)
+    sections = {r["section"] for r in rows}
+    assert {"input", "provenance", "integrity", "metric"} <= sections
+    provenance = {r["key"]: r["value"] for r in rows
+                  if r["section"] == "provenance"}
+    assert provenance["candidate"] == "SYNTH-A"
+    integrity = {r["key"]: r["value"] for r in rows
+                 if r["section"] == "integrity"}
+    assert integrity["state"] == "verified"
+
+
+def test_quiet_is_actually_quiet(tmp_path):
+    """Measured through a real subprocess, because the old test asserted
+    `animate is False` — which was true, and beside the point: the plain
+    per-stage lines were still written."""
+    proc = run("--quiet", "run", "solve", PN1D, "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    assert proc.stderr == "", f"--quiet still wrote: {proc.stderr!r}"
+
+
+def test_quiet_still_lets_an_error_through(tmp_path):
+    """Silence must not swallow the thing the user needs to see."""
+    proc = run("--quiet", "run", "solve", "no.such.thing.1d.steady",
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "no such capability" in proc.stderr
+
+
+def test_an_unbounded_sweep_is_refused_before_it_allocates(tmp_path):
+    """The whole product was materialised before any solve began."""
+    axes = [f"--vary"] * 0
+    args = []
+    for name in ("Na", "Nd", "ni"):
+        args += ["--vary", name + "=" + ",".join(str(1e15 * (i + 1))
+                                                 for i in range(30))]
+    proc = run("run", "sweep", PN2D, *args, "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "more than the" in proc.stderr
+    assert not any(tmp_path.iterdir())
+
+
+def test_compare_names_a_metric_that_exists_on_one_side_only(tmp_path):
+    """A build that adds or removes a metric produced a table that looked
+    complete — under --allow-build-diff that is exactly the difference
+    somebody is looking for."""
+    left = json.loads(run("--format", "json", "run", "solve", PN1D,
+                          "--output", str(tmp_path)).stdout)[0]["run_id"]
+    right = _restamp_build(tmp_path / left, "deadbeef")
+
+    manifest_path = tmp_path / right / "metrics.json"
+    metrics = json.loads(manifest_path.read_text())
+    metrics["new_metric_from_a_later_build"] = 1.0
+    manifest_path.write_text(json.dumps(metrics))
+    # the checksum has to follow, or read_run refuses before compare runs
+    mpath = tmp_path / right / "manifest.json"
+    manifest = json.loads(mpath.read_text())
+    import hashlib
+    manifest["files"]["metrics.json"] = hashlib.sha256(
+        manifest_path.read_bytes()).hexdigest()
+    mpath.write_text(json.dumps(manifest))
+
+    proc = run("compare", "runs", left, right, "--allow-build-diff",
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    assert "new_metric_from_a_later_build" in proc.stderr
+    assert "only in" in proc.stderr

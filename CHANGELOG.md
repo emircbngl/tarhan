@@ -2,6 +2,57 @@
 
 Biçim: [Keep a Changelog](https://keepachangelog.com/), sürümleme: SemVer.
 
+## [Unreleased] — 0.3.0.dev0
+
+Nothing here is released. `CITATION.cff` still describes v0.2.0 because that is
+the last version with a Zenodo archive; these entries move into a dated section
+when a release is cut.
+
+### Added
+- `run solve` reaches 2D steady, via a generated axis-aligned rectangular pn
+  diode (`models/diode2d_mesh.py`). Eight scalars determine the mesh exactly,
+  so a run records its device as eight numbers rather than 625 coordinates.
+  **This is not mesh generation** — one shape, no refinement, no curved
+  boundaries. Validated against the 1D solver on the same node positions:
+  max|Δψ̂| 2.28e-13, terminal-current ratio 1.000000 at 0.3 V and 0.4 V.
+- `run sweep`, under one fixed solver contract; varying a solver term is
+  refused, because a column that is not comparable is not a column.
+- `--device`, a flat TOML/JSON of device overrides, refused by name when a key
+  is not part of the capability's device.
+- `candidate list|show|screen` and `run solve --candidate`. A property is a
+  value, a unit, a basis and a doubt; uncertainty can make a threshold
+  `undecided`, which is not a soft fail. **No material database ships.**
+- Canonical units per solver-facing property, converted on load — uncertainty
+  through the same conversion — and refused otherwise.
+- A scheduled cross-oracle workflow (`oracle.yml`) that fails rather than skips
+  when DEVSIM is absent.
+- Run artifacts carry a build id over the package source, per-file checksums,
+  a schema version, and the real argv.
+
+### Fixed
+- `--candidate-id` without `--candidate` solved default material while
+  recording the named candidate: a falsified provenance record.
+- Units were checked only for emptiness, so `mu_n = 0.1 m^2/Vs` silently
+  solved a material 1e4 times slower, and `mu_n = 3 kg` was accepted.
+- `PNDiode1D` did not validate `gamma`; `gamma < 1` made `build_grid` loop
+  forever.
+- Two candidates with equal nominal values shared one artifact directory, the
+  second overwriting the first.
+- A `--device` file could overwrite a candidate's material values while
+  provenance still named the candidate.
+- `write_run` was not atomic: a crash could corrupt the previous artifact, and
+  a re-run without field data left a stale `fields.npz` that the new manifest
+  then checksummed.
+- `valid_range` was stored and never consulted; it is now enforced, and a range
+  over a condition no run can supply is refused rather than kept as decoration.
+- `--quiet` still wrote progress lines to stderr.
+- `--tol nan` was reported as non-convergence rather than as bad input.
+- `compare runs` silently dropped metrics present on only one side.
+- A sweep with no `--vary` produced a one-point table; a large grid was
+  materialised before any solve began.
+- `read_run` kept parsing artifacts from a newer schema than it understands.
+- Duplicate JSON keys in candidate and device files silently kept the last.
+
 ## [0.2.0] — 2026-08-07
 
 **Why 0.2.0, when this release breaks two published signatures and changes the

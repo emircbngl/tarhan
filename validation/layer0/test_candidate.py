@@ -27,7 +27,7 @@ import pytest
 
 from tarhan.candidate import (BASES, Candidate, CandidateError, Property,
                               Threshold, applicability, device_overrides,
-                              fingerprint, judge, load_candidates,
+                              fingerprint, judge, load_candidates, out_of_range,
                               parse_threshold, screen)
 
 PN1D = "semiconductor.pn.drift-diffusion.1d.steady"
@@ -132,7 +132,7 @@ def test_the_upper_bound_direction_behaves_the_same_way(
 def test_a_property_nobody_recorded_is_undecided_not_failed():
     """Absent is not the same as bad, and screening it out as a failure would
     quietly rank measurement effort as a material defect."""
-    result = judge(synth(), Threshold("band_gap_ev", ">=", 1.0))
+    result = judge(synth(), Threshold("band_gap", ">=", 1.0))
     assert result.verdict == "undecided"
     assert "not recorded" in result.detail
 
@@ -430,3 +430,57 @@ def test_an_identical_record_fingerprints_identically():
         return Candidate("SYNTH-A", {"mu_n": Property(1000.0, "cm^2/Vs",
                                                       "computed")})
     assert fingerprint(build()) == fingerprint(build())
+
+
+# --- valid_range is enforced, or it is not accepted ------------------------
+
+def test_a_range_over_a_condition_no_run_supplies_is_refused():
+    """An unenforceable range is worse than none: it reads as a guarantee and
+    is not one. Reported in review as stored-and-never-consulted."""
+    with pytest.raises(CandidateError, match="which no run can supply"):
+        Property(1.0, "cm^2/Vs", "computed",
+                 valid_range={"temperature_k": [250, 350]})
+
+
+@pytest.mark.parametrize("span", ["anything", [1.0], [3.0, 1.0], [1.0, "x"],
+                                  [float("nan"), 1.0], 5])
+def test_a_range_that_is_not_a_range_is_refused(span):
+    with pytest.raises(CandidateError):
+        Property(1.0, "cm^2/Vs", "computed", valid_range={"bias_v": span})
+
+
+def test_a_run_inside_the_stated_range_is_clean():
+    inside = Candidate("SYNTH-R", {"mu_n": Property(
+        1000.0, "cm^2/Vs", "computed", valid_range={"bias_v": [0.0, 0.5]})})
+    assert out_of_range(inside, {"bias_v": 0.3}) == ()
+
+
+def test_a_run_outside_the_stated_range_is_named():
+    outside = Candidate("SYNTH-R", {"mu_n": Property(
+        1000.0, "cm^2/Vs", "computed", valid_range={"bias_v": [0.0, 0.5]})})
+    breaches = out_of_range(outside, {"bias_v": 0.9})
+    assert len(breaches) == 1
+    assert "mu_n" in breaches[0] and "0.9" in breaches[0]
+
+
+def test_a_condition_the_run_does_not_report_is_not_invented():
+    """Absence of a condition is not a breach of it."""
+    candidate = Candidate("SYNTH-R", {"mu_n": Property(
+        1000.0, "cm^2/Vs", "computed", valid_range={"bias_v": [0.0, 0.5]})})
+    assert out_of_range(candidate, {}) == ()
+
+
+# --- duplicate keys ------------------------------------------------------
+
+def test_a_json_key_given_twice_is_refused(tmp_path):
+    """json.loads keeps the LAST value silently. For a file that decides what
+    physics runs, "the last one wins" is a coin flip nobody sees. TOML already
+    refuses this; JSON had to be told."""
+    path = tmp_path / "dup.json"
+    path.write_text('{"SYNTH-A": {"properties": {'
+                    '"mu_n": {"value": 1000.0, "unit": "cm^2/Vs", '
+                    '"basis": "computed"}, '
+                    '"mu_n": {"value": 5.0, "unit": "cm^2/Vs", '
+                    '"basis": "computed"}}}}', encoding="utf-8")
+    with pytest.raises(CandidateError, match="given twice"):
+        load_candidates(path)

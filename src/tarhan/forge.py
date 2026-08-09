@@ -738,6 +738,14 @@ class Forge:
                 + f"  {clock}")
 
     def _render(self, force: bool = False) -> None:
+        if self.out.quiet:
+            # --quiet silenced the ANIMATION and left the plain per-stage
+            # lines, so a quiet run still wrote "[tarhan] solve ..." and
+            # "[tarhan] converged ..." to stderr. The test only asserted
+            # `animate is False`, which was true and beside the point.
+            # Reported in review from a real subprocess. Errors do not come
+            # through here, so they still print.
+            return
         if not self.animate:
             stage = self._current
             if force or (stage is not None and stage.done

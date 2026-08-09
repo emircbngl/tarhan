@@ -48,6 +48,33 @@ BASES = ("measured", "computed", "inferred")
 #: What a screen can conclude about one candidate against one threshold.
 VERDICTS = ("pass", "fail", "undecided")
 
+#: Operating conditions a run can actually report, and therefore the only ones
+#: a ``valid_range`` may name. The list is short on purpose: a range over a
+#: condition nothing supplies cannot be enforced, and an unenforced range is
+#: worse than an absent one because it reads as a guarantee.
+CONDITIONS = ("bias_v",)
+
+
+def out_of_range(candidate: "Candidate", conditions: Mapping[str, float]):
+    """Which properties are being used outside their stated validity.
+
+    Returns a tuple of human-readable strings, empty when everything is in
+    range. Storing ``valid_range`` and never consulting it let a candidate be
+    solved far outside the window its own file declared, and still be reported
+    as "usable" — reported in review.
+    """
+    breaches = []
+    for name, prop in sorted(candidate.properties.items()):
+        for condition, (low, high) in prop.valid_range.items():
+            if condition not in conditions:
+                continue
+            value = conditions[condition]
+            if not (low <= value <= high):
+                breaches.append(
+                    f"{name} is stated valid for {condition} in "
+                    f"[{low:g}, {high:g}] but the run uses {value:g}")
+    return tuple(breaches)
+
 
 class CandidateError(ValueError):
     """A candidate that cannot be reasoned about."""
@@ -137,6 +164,23 @@ class Property:
             raise CandidateError(
                 f"valid_range={self.valid_range!r}: must be a table of "
                 "condition -> [low, high]")
+        for condition, span in self.valid_range.items():
+            if condition not in CONDITIONS:
+                # An unenforceable range is worse than none: it looks like a
+                # guarantee and is not one. Only conditions a run can actually
+                # supply may be written, so the schema cannot hold a promise
+                # nothing checks. Reported in review.
+                raise CandidateError(
+                    f"valid_range names {condition!r}, which no run can "
+                    f"supply. Known conditions: {', '.join(sorted(CONDITIONS))}")
+            if (not isinstance(span, (list, tuple)) or len(span) != 2
+                    or not all(isinstance(v, (int, float))
+                               and not isinstance(v, bool)
+                               and math.isfinite(v) for v in span)
+                    or span[0] > span[1]):
+                raise CandidateError(
+                    f"valid_range[{condition!r}]={span!r}: must be "
+                    "[low, high] with low <= high")
         if self.basis not in BASES:
             raise CandidateError(
                 f"basis={self.basis!r}: must be one of {', '.join(BASES)}. A "
@@ -424,6 +468,24 @@ _CANDIDATE_FIELDS = {"properties", "composition", "structure",
                      "dimensionality", "notes"}
 
 
+def _no_duplicates(pairs):
+    """Refuse a JSON object that names the same key twice.
+
+    ``json.loads`` keeps the LAST value silently, so a file listing mu_n twice
+    quietly discards the first. For a configuration that decides what physics
+    runs, "the last one wins" is not a resolution — it is a coin flip nobody
+    sees. TOML already refuses this; JSON had to be told. Reported in review.
+    """
+    seen = {}
+    for key, value in pairs:
+        if key in seen:
+            raise CandidateError(
+                f"{key!r} is given twice in the same table; the second would "
+                "silently replace the first")
+        seen[key] = value
+    return seen
+
+
 def _property_from(name: str, raw: Any, owner: str) -> Property:
     if not isinstance(raw, dict):
         raise CandidateError(
@@ -454,7 +516,7 @@ def load_candidates(path) -> Tuple[Candidate, ...]:
     path = Path(path)
     raw = path.read_bytes()
     if path.suffix.lower() == ".json":
-        doc = json.loads(raw.decode("utf-8"))
+        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
     elif path.suffix.lower() == ".toml":
         doc = tomllib.loads(raw.decode("utf-8"))
     else:

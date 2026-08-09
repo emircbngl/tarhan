@@ -457,10 +457,31 @@ def _candidate_show(out: cliout.Output, args) -> int:
                      "basis": prop.basis,
                      "uncertainty": ("" if prop.uncertainty is None
                                      else prop.uncertainty),
-                     "low": low, "high": high, "source": prop.source})
+                     "low": low, "high": high, "source": prop.source,
+                     # Stored, and previously not shown — so the CLI could not
+                     # display the very range that now decides whether a solve
+                     # is allowed. Reported in review.
+                     "valid_range": "; ".join(
+                         f"{k} in [{v[0]:g}, {v[1]:g}]"
+                         for k, v in sorted(prop.valid_range.items()))})
     out.emit(rows, ("property", "value", "unit", "basis", "uncertainty",
-                    "low", "high", "source"))
+                    "low", "high", "source", "valid_range"))
+    # The identity is part of the evidence package the docstring claims, and
+    # it was the part the CLI never printed.
+    for label, value in (("composition", match.composition),
+                         ("structure", match.structure),
+                         ("dimensionality", match.dimensionality),
+                         ("notes", match.notes)):
+        if value:
+            out.note(f"{label}: {value}")
+    out.note(f"fingerprint: {_candidate_fingerprint(match)}")
     return cliout.EXIT_OK
+
+
+def _candidate_fingerprint(match):
+    from tarhan import candidate as cand
+
+    return cand.fingerprint(match)
 
 
 def _candidate_screen(out: cliout.Output, args) -> int:
@@ -508,6 +529,12 @@ def _candidate_screen(out: cliout.Output, args) -> int:
 #: not a property of the thing being biased.
 BIAS_AXIS = "bias_v"
 
+#: A sweep builds its whole Cartesian product before solving anything, so an
+#: unbounded grid exhausts memory before producing a single result. The number
+#: is arbitrary but the bound is not: it is chosen to be far above any sweep
+#: worth reading in a terminal and far below anything that hurts.
+MAX_SWEEP_POINTS = 10_000
+
 #: Terms a sweep may never vary — see :func:`_parse_vary`.
 SOLVER_TERMS = ("tol", "max_iter", "method")
 
@@ -533,6 +560,20 @@ def _solver_numbers_or_status(out: cliout.Output, args, default_max_iter):
         out.error(f"--max-iter {max_iter}: must be at least one iteration")
         return None
     return {"tol": tol, "bias": bias, "max_iter": max_iter}
+
+
+def _recorded_command() -> str:
+    """The command actually typed, not a family name.
+
+    The manifest recorded `tarhan run solve <capability>` and dropped the
+    bias, the tolerance, the candidate and the device file — so a run could
+    not be re-issued from its own record, which is the one thing the field is
+    for. Reported in review. Reconstructed from argv with shlex.join so the
+    result is a line that can be pasted back.
+    """
+    import shlex
+
+    return "tarhan " + shlex.join(sys.argv[1:])
 
 
 def _runnable_or_status(out: cliout.Output, capability_id):
@@ -579,6 +620,7 @@ def _run_solve(out: cliout.Output, args) -> int:
     runner = RUNNERS[cap.id]
     device_inputs = runner.device()
     candidate_terms = {}
+    material = set()
     if bool(args.candidate) != bool(args.candidate_id):
         # A --candidate-id with no file was ACCEPTED and the run went ahead on
         # default material while provenance recorded the named candidate: a
@@ -618,10 +660,38 @@ def _run_solve(out: cliout.Output, args) -> int:
         # re-measured candidate under the same id is also a different run.
         candidate_terms = {"candidate": match.identifier,
                            "candidate_fingerprint": cand.fingerprint(match)}
+        # A range this run puts the material outside of is not a warning to be
+        # scrolled past: the candidate's own file says its numbers do not
+        # describe the material under these conditions, so the solve would be
+        # of something nobody characterised. Reported in review as stored and
+        # never consulted.
+        breaches = cand.out_of_range(match, {"bias_v": float(args.bias)})
+        if breaches:
+            out.error(f"{match.identifier} is outside its stated validity:")
+            for breach in breaches:
+                out.error(f"  {breach}")
+            out.note("the candidate file declares this range; solving outside "
+                     "it would report numbers the material was never "
+                     "characterised for")
+            return cliout.EXIT_INPUT
+        material = set(cand.MATERIAL_PARAMETERS[cap.id])
     if args.device:
         try:
-            device_inputs = _merge_device(device_inputs,
-                                          _load_device_spec(args.device),
+            overrides = _load_device_spec(args.device)
+            # A device file applied AFTER a candidate could rewrite the very
+            # material values the candidate supplied, while provenance went on
+            # saying that candidate had been solved. Two inputs disagreeing
+            # about one number is not something to resolve by order of
+            # application. Reported in review.
+            clash = sorted(material & set(overrides))
+            if clash:
+                out.error(
+                    f"{Path(args.device).name} sets {', '.join(clash)}, which "
+                    f"{args.candidate_id} also supplies. Solving would record "
+                    "that candidate while using another material's numbers")
+                out.note("drop the clashing keys, or run without --candidate")
+                return cliout.EXIT_INPUT
+            device_inputs = _merge_device(device_inputs, overrides,
                                           Path(args.device).name)
         except (ValueError, OSError) as exc:
             out.error(str(exc))
@@ -679,8 +749,14 @@ def _run_solve(out: cliout.Output, args) -> int:
                     "candidate": args.candidate_id or "none",
                     "device_file": Path(args.device).name if args.device
                                    else "none",
+                    # The screen uses each property's spread; the SOLVE takes
+                    # the nominal value alone. That is a defensible choice and
+                    # an indefensible silence — a reader of this artifact
+                    # would otherwise have no way to know the uncertainty went
+                    # nowhere. Reported in review.
+                    "uncertainty_treatment": "nominal-only",
                     "scenario": f"single bias {args.bias} V"},
-        status="converged", command=f"tarhan run solve {cap.id}",
+        status="converged", command=_recorded_command(),
         version=__version__, fields_data=fields,
         report=f"# {cap.id}\n\nbias {args.bias} V\n")
 
@@ -807,6 +883,17 @@ def _run_sweep(out: cliout.Output, args) -> int:
     if axes is None:
         return cliout.EXIT_INPUT
 
+    total = 1
+    for values in axes.values():
+        total *= len(values)
+    if total > MAX_SWEEP_POINTS:
+        # The product was materialised into a list before any solve began, so
+        # a few generous axes could exhaust memory before the first result.
+        # Refusing with the number is more useful than dying without one.
+        out.error(f"{total} points is more than the {MAX_SWEEP_POINTS} this "
+                  "command will run in one go")
+        out.note("narrow an axis, or split the grid across several sweeps")
+        return cliout.EXIT_INPUT
     points = list(_sweep_points(axes))
     numbers = _solver_numbers_or_status(out, args, runner.default_max_iter)
     if numbers is None:
@@ -850,7 +937,7 @@ def _run_sweep(out: cliout.Output, args) -> int:
                 inputs=inputs, solver=solver, metrics=metrics,
                 provenance={"model": cap.source, "device": runner.describe,
                             "scenario": f"sweep point {point}"},
-                status="converged", command=f"tarhan run sweep {cap.id}",
+                status="converged", command=_recorded_command(),
                 version=__version__, fields_data=fields,
                 report=f"# {cap.id}\n\nsweep point {point}\n")
             row["run_id"] = path.name
@@ -894,6 +981,25 @@ def _run_show(out: cliout.Output, args) -> int:
         return cliout.EXIT_INPUT
 
     manifest = run["manifest"]
+    if args.full:
+        # Without this the command answered "what were the numbers" but not
+        # "what produced them" — so a run could not be reopened from the CLI
+        # to see which candidate and which inputs were behind it, which is the
+        # whole point of writing the directory. Reported in review.
+        rows = [{"section": "input", "key": k, "value": v}
+                for k, v in sorted(run["inputs"].items())]
+        rows += [{"section": "provenance", "key": k, "value": v}
+                 for k, v in sorted(run["provenance"].items())]
+        rows += [{"section": "integrity", "key": "state",
+                  "value": run.get("integrity", "unknown")},
+                 {"section": "integrity", "key": "schema_version",
+                  "value": run.get("schema_version", 1)},
+                 {"section": "integrity", "key": "command",
+                  "value": manifest.get("command", "")}]
+        rows += [{"section": "metric", "key": k, "value": v}
+                 for k, v in sorted(run["metrics"].items())]
+        out.emit(rows, ("section", "key", "value"))
+        return cliout.EXIT_OK
     if run.get("integrity") == "unverified-legacy":
         # A directory written before checksums existed. Reading it in silence
         # made it indistinguishable from a verified one — reported in review.
@@ -979,11 +1085,30 @@ def _compare_runs(out: cliout.Output, args) -> int:
                      ("comparable", "differing"))
         return cliout.EXIT_INPUT
 
-    keys = sorted(set(left["metrics"]) & set(right["metrics"]))
+    shared = set(left["metrics"]) & set(right["metrics"])
+    only_left = sorted(set(left["metrics"]) - shared)
+    only_right = sorted(set(right["metrics"]) - shared)
+    if only_left or only_right:
+        # Comparing the intersection and saying nothing meant a build that
+        # ADDED or REMOVED a metric produced a table that looked complete.
+        # Under --allow-build-diff that is precisely the difference somebody
+        # is looking for. Reported in review.
+        if only_left:
+            out.note(f"only in {left['path'].name}: {', '.join(only_left)}")
+        if only_right:
+            out.note(f"only in {right['path'].name}: {', '.join(only_right)}")
+        out.note("a metric on one side only cannot be differenced; it is "
+                 "named here rather than dropped")
+    keys = sorted(shared)
     rows = []
     for key in keys:
         a, b = left["metrics"][key], right["metrics"][key]
-        delta = (b - a) if isinstance(a, (int, float)) else None
+        # Both sides must be numbers for a difference to mean anything: a
+        # metric that changed TYPE between builds would otherwise subtract or
+        # silently report None with no explanation.
+        numeric = all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                      for v in (a, b))
+        delta = (b - a) if numeric else None
         rows.append({"metric": key, "left": a, "right": b, "delta": delta})
     out.emit(rows, ("metric", "left", "right", "delta"))
     if args.allow_build_diff and left["manifest"].get("code_id") != \
@@ -1323,6 +1448,10 @@ def build_parser():
 
     p_rshow = run_sub.add_parser("show", help="reopen a run by id")
     p_rshow.add_argument("run_id", metavar="<run-id>")
+    p_rshow.add_argument("--full", action="store_true",
+                         help="also show the resolved inputs, the provenance "
+                              "and the integrity state — everything needed to "
+                              "tell what produced the numbers")
     p_rshow.add_argument("--output", default="runs")
 
     p_cmp = sub.add_parser("compare", help="compare two runs, or refuse to")

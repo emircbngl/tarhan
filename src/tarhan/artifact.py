@@ -40,6 +40,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -344,8 +346,18 @@ def write_run(root, *, capability: str, capability_status: str,
     # different result, and naming it only by the problem meant the first was
     # silently overwritten by the second.
     identifier = f"{problem}-{build}"
-    path = Path(root) / identifier
-    path.mkdir(parents=True, exist_ok=True)
+    root = Path(root)
+    final = root / identifier
+    # Written to a staging directory and moved into place, for two reasons
+    # reported in review. A crash midway used to leave the PREVIOUS good
+    # artifact half-overwritten; and re-running a problem whose new result has
+    # no field data left the old fields.npz sitting there — which the fresh
+    # manifest then checksummed, so the run claimed field data it never
+    # produced. Both are the same failure: a directory that is partly one run
+    # and partly another.
+    root.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{identifier}.", dir=root))
+    path = staging
 
     (path / INPUT_LOCK).write_text(dumps_toml(inputs), encoding="utf-8")
     (path / PROVENANCE).write_text(
@@ -370,7 +382,27 @@ def write_run(root, *, capability: str, capability_status: str,
     (path / MANIFEST).write_text(
         json.dumps(manifest.to_dict(), indent=2, sort_keys=True,
                    ensure_ascii=False) + "\n", encoding="utf-8")
-    return path
+
+    # The swap. shutil.rmtree of the old directory is not atomic either, so the
+    # old one is moved ASIDE first and only removed once the new one is in
+    # place: a crash between the two leaves the previous run recoverable rather
+    # than deleting it to make room for something that never arrived.
+    displaced = None
+    if final.exists():
+        displaced = Path(tempfile.mkdtemp(prefix=f".old-{identifier}.",
+                                          dir=root))
+        final.rename(displaced / identifier)
+    try:
+        staging.rename(final)
+    except OSError:
+        if displaced is not None:
+            (displaced / identifier).rename(final)
+            shutil.rmtree(displaced, ignore_errors=True)
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    if displaced is not None:
+        shutil.rmtree(displaced, ignore_errors=True)
+    return final
 
 
 def read_run(path) -> Dict[str, Any]:
