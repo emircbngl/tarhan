@@ -95,6 +95,28 @@ tarhan compare runs <run-a> <run-b> --output runs/
 tarhan compare runs <run-a> <run-b> --allow-build-diff --output runs/
 ```
 
+`run solve` reaches two capabilities today: `…pn.drift-diffusion.1d.steady` and
+`…2d.steady`. The 2D one builds an axis-aligned rectangular pn diode from eight
+scalars (`len_p`, `len_n`, `height`, `h0`, `gamma`, `ny`, `Na`, `Nd`) — see
+`src/tarhan/models/diode2d_mesh.py`. **This is not mesh generation**: one shape,
+no refinement, no curved boundaries, nothing that could mesh a MOSFET. It exists
+because `PNDiode2D` needs points, triangles, doping and contacts, and until now
+the only things that could produce those were a test fixture and DEVSIM's oracle
+mesh — so 2D was validated while nothing in the package could hand it a device.
+The narrowness is also what lets a 2D run record its mesh as eight numbers in
+`input.lock.toml` rather than 625 coordinates.
+
+Its correctness rests on an oracle that needs no external formula: with nothing
+varying along y, that device IS the 1D device, so `pn1d` — validated against
+DEVSIM — must reproduce it. Measured max|Δψ̂| 2.28e-13 and a terminal-current
+ratio of 1.000000 at 0.3 V and 0.4 V. The 2D terminal current is integrated over
+the contact edge, so it is per unit depth; `current_a_cm2` divides out the
+device height and `terminal_current_a_per_cm` is reported alongside it.
+
+A capability that is validated but has no runner exits `3` saying so — being
+proven and being wired up are different facts. Both transient capabilities are
+in that state: there is no bias waveform to give them.
+
 A run leaves `runs/<problem-id>-<build-id>/` behind: `manifest.json`,
 `input.lock.toml`, `provenance.json`, `metrics.json`, `fields.npz`,
 `stdout.log`, `report.md`. The **problem id** hashes the capability, the fully

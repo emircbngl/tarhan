@@ -149,13 +149,35 @@ def test_a_validated_capability_with_no_runner_says_which_half_is_missing(
         tmp_path):
     """Being proven and being wired up are different facts.
 
-    2D steady is validated against DEVSIM and still not runnable from the CLI.
-    Reporting that as "blocked" would blame the physics for a missing command.
+    1D transient is validated — the steady state is an exact fixed point of its
+    RHS, and a perturbation relaxes back — and still not runnable from the CLI,
+    because `run solve` has no bias waveform to give it. Reporting that as
+    "blocked" would blame the physics for a missing command.
+
+    This test used to make the same point with 2D steady. That stopped being
+    true the moment 2D was wired, and the example was replaced rather than the
+    assertion weakened: the distinction is what matters, not which capability
+    happens to illustrate it today.
     """
-    proc = run("run", "solve", "semiconductor.pn.drift-diffusion.2d.steady",
+    proc = run("run", "solve", "semiconductor.pn.drift-diffusion.1d.transient",
                "--output", str(tmp_path))
     assert proc.returncode == cliout.EXIT_UNAVAILABLE
     assert "not wired" in proc.stderr
+
+
+def test_every_wired_capability_is_one_the_registry_calls_runnable():
+    """The map and the registry must not drift apart.
+
+    A runner for a blocked capability would be reachable only through a check
+    that exists two branches earlier — the kind of pairing that stays correct
+    until someone reorders the function.
+    """
+    from tarhan.capability_registry import get
+    from tarhan.cli import RUNNERS
+
+    for capability_id in RUNNERS:
+        assert get(capability_id).runnable, \
+            f"{capability_id} has a runner but the registry refuses it"
 
 
 def test_an_unknown_capability_is_an_input_error(tmp_path):
@@ -319,3 +341,98 @@ def test_a_legacy_run_says_it_was_never_verified(tmp_path):
     proc = run("run", "show", run_id, "--output", str(tmp_path))
     assert proc.returncode == cliout.EXIT_OK
     assert "nothing has verified" in proc.stderr
+
+
+# --- 2D steady, now that a device exists -----------------------------------
+
+PN2D = "semiconductor.pn.drift-diffusion.2d.steady"
+
+
+def test_2d_steady_is_wired_and_writes_a_full_artifact(tmp_path):
+    """It was validated long before it was runnable, and the CLI said so.
+
+    `run solve` exited 3 with "the physics is proven; the command surface for
+    it is not built" — true, and the missing half was a DEVICE: PNDiode2D needs
+    a mesh, and nothing in the package could produce one.
+    """
+    proc = run("--format", "json", "run", "solve", PN2D,
+               "--bias", "0.3", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK, proc.stderr
+    record = json.loads(proc.stdout)[0]
+    assert record["grid_points"] == 625
+    directory = tmp_path / record["run_id"]
+    for name in ("manifest.json", "input.lock.toml", "metrics.json",
+                 "fields.npz", "report.md"):
+        assert (directory / name).exists(), name
+
+
+def test_the_2d_lock_file_records_the_mesh_as_scalars(tmp_path):
+    """A lock holding 625 coordinates would be a record nobody reads and a
+    hash nobody can reproduce by hand. The generator is narrow enough that
+    these scalars determine the mesh exactly."""
+    import tomllib
+
+    run_id = None
+    proc = run("--format", "json", "run", "solve", PN2D,
+               "--bias", "0.3", "--output", str(tmp_path))
+    run_id = json.loads(proc.stdout)[0]["run_id"]
+    lock = tomllib.loads(
+        (tmp_path / run_id / "input.lock.toml").read_text(encoding="utf-8"))
+    assert {"len_p", "len_n", "height", "h0", "gamma", "ny", "Na", "Nd"} <= \
+        set(lock), "the mesh is an input and must be reproducible from the lock"
+    assert {"ni", "ut", "eps_s", "q", "mu_n", "mu_p"} <= set(lock)
+    assert "points" not in lock and "triangles" not in lock
+
+
+def test_the_2d_current_agrees_with_the_1d_capability(tmp_path):
+    """The check that makes wiring it worth anything.
+
+    Both capabilities describe the same ideal diode, so the current densities
+    must agree — and they are computed by two different discretisations on two
+    different meshes, so agreement is evidence rather than tautology. The 2D
+    terminal current is per unit depth; the reported `current_a_cm2` is what
+    divides out the device height.
+    """
+    one = run("--format", "json", "run", "solve", PN1D,
+              "--bias", "0.3", "--output", str(tmp_path))
+    two = run("--format", "json", "run", "solve", PN2D,
+              "--bias", "0.3", "--output", str(tmp_path))
+    j_1d = json.loads(one.stdout)[0]["current_a_cm2"]
+    j_2d = json.loads(two.stdout)[0]["current_a_cm2"]
+    assert abs(j_2d / j_1d - 1.0) < 1e-3
+
+
+def test_two_capabilities_are_not_comparable_to_each_other(tmp_path):
+    """Same physics, same bias, different capability — and `compare` must
+    still refuse. The contract is not "do the numbers look close"."""
+    one = json.loads(run("--format", "json", "run", "solve", PN1D,
+                         "--bias", "0.3", "--output",
+                         str(tmp_path)).stdout)[0]["run_id"]
+    two = json.loads(run("--format", "json", "run", "solve", PN2D,
+                         "--bias", "0.3", "--output",
+                         str(tmp_path)).stdout)[0]["run_id"]
+    proc = run("compare", "runs", one, two, "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "different capability" in proc.stderr
+
+
+def test_each_capability_carries_its_own_iteration_budget(tmp_path):
+    """60 Gummel iterations is generous in 1D and tight in 2D. A default on
+    the flag would silently impose the 1D budget on everything added later."""
+    import tomllib
+
+    for capability, expected in ((PN1D, 60), (PN2D, 200)):
+        record = json.loads(run("--format", "json", "run", "solve", capability,
+                                "--bias", "0.3", "--output",
+                                str(tmp_path)).stdout)[0]
+        manifest = json.loads(
+            (tmp_path / record["run_id"] / "manifest.json").read_text())
+        assert manifest["solver"]["max_iter"] == expected
+
+    # ...and an explicit flag still wins over the capability's own default.
+    record = json.loads(run("--format", "json", "run", "solve", PN2D,
+                            "--bias", "0.3", "--max-iter", "17",
+                            "--output", str(tmp_path)).stdout)[0]
+    manifest = json.loads(
+        (tmp_path / record["run_id"] / "manifest.json").read_text())
+    assert manifest["solver"]["max_iter"] == 17

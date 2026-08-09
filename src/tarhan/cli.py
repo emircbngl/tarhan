@@ -14,7 +14,11 @@ import contextlib
 import math
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
+
+import numpy as np
 
 from tarhan import __version__, cliout, physics
 from tarhan.capability_registry import CapabilityNotFound, all_capabilities, get
@@ -204,30 +208,120 @@ def _solve_pn1d_steady(inputs, on_iteration=None):
     return metrics, fields
 
 
-def _resolved_device() -> dict:
-    """Every PNDiode1D field that changes the answer, with its default filled in.
+def _solve_pn2d_steady(inputs, on_iteration=None):
+    """2D steady drift-diffusion on the generated rectangular mesh.
 
-    Taken from the dataclass rather than retyped, so a new field cannot be added
-    to the device and quietly stay out of the lock file.
+    The physics here was validated against DEVSIM at stages 2D-1 and 2D-2 long
+    before this function existed. What was missing was a DEVICE: PNDiode2D
+    needs points, triangles, doping and contacts, and the only things that
+    could produce those were a fixture inside a test file and DEVSIM's own
+    oracle mesh. :mod:`tarhan.models.diode2d_mesh` is what closed that gap, and
+    it is why the lock file can record eight scalars instead of 625 nodes.
+
+    The constants are taken from the 1D device deliberately, not from
+    PNDiode2D's own defaults, so `compare runs` across the two dimensions is
+    comparing the mesh and not the permittivity.
+    """
+    from tarhan.models import pn2d
+    from tarhan.models.diode2d_mesh import RectangularDiode2D, device
+
+    spec = RectangularDiode2D(**{k: v for k, v in inputs.items()
+                                 if k in _SPEC_FIELDS})
+    dev = device(spec, **{k: inputs[k] for k in
+                          ("ni", "ut", "eps_s", "q", "mu_n", "mu_p")
+                          if k in inputs})
+    state = pn2d.solve_bias(dev, inputs["bias_v"],
+                            gummel_tol=inputs.get("tol", 1e-9),
+                            max_gummel=int(inputs.get("max_iter", 200)),
+                            on_iteration=on_iteration)
+    # The terminal current is integrated over the contact EDGE, so it is a
+    # current per unit depth; dividing by the device height gives the same
+    # quantity the 1D model reports. Established by measurement against the
+    # validated 1D solver (ratio 1.000000 at 0.3 V and 0.4 V), not asserted
+    # from a formula — physics_verify is unavailable this session.
+    metrics = {"current_a_cm2": float(state["i"]) / spec.height,
+               "terminal_current_a_per_cm": float(state["i"]),
+               "electron_current_a_per_cm": float(state["i_n"]),
+               "hole_current_a_per_cm": float(state["i_p"]),
+               "gummel_iterations": int(state["gummel_iters"]),
+               "grid_points": int(dev.mesh.n_nodes)}
+    fields = {"psi": np.asarray(state["psi"]),
+              "n_hat": np.asarray(state["n_hat"]),
+              "p_hat": np.asarray(state["p_hat"])}
+    return metrics, fields
+
+
+def _dataclass_defaults(cls) -> dict:
+    """Every field that changes the answer, with its default filled in.
+
+    Read from the dataclass rather than retyped, so a new field cannot be added
+    to a device and quietly stay out of the lock file — the defect this
+    replaced, where a run recorded only its bias and could not be reproduced
+    from its own record.
     """
     import dataclasses
 
-    from tarhan.models.pn1d import PNDiode1D
-
-    dev = PNDiode1D()
+    instance = cls()
     out = {}
-    for f in dataclasses.fields(dev):
-        if not f.init:                      # C0, delta, L_D are derived
+    for f in dataclasses.fields(instance):
+        if not f.init:                      # C0, delta, L_D, mesh are derived
             continue
-        value = getattr(dev, f.name)
+        value = getattr(instance, f.name)
         out[f.name] = "none" if value is None else value
     return out
 
 
-#: capability id -> the callable that runs it. A capability absent from this map
-#: is not runnable from the CLI even if the registry calls it validated: being
-#: proven and being wired up are different facts and the error says which.
-RUNNERS = {"semiconductor.pn.drift-diffusion.1d.steady": _solve_pn1d_steady}
+def _resolved_device_1d() -> dict:
+    from tarhan.models.pn1d import PNDiode1D
+
+    return _dataclass_defaults(PNDiode1D)
+
+
+def _resolved_device_2d() -> dict:
+    """The mesh scalars, plus the 1D device's physical constants.
+
+    The mesh is an input, and a lock file holding 625 coordinates would be a
+    record nobody reads and a hash nobody can reproduce by hand. The generator
+    is narrow enough that these scalars determine it exactly, which is what
+    makes recording them equivalent to recording the mesh.
+    """
+    from tarhan.models.diode2d_mesh import RectangularDiode2D
+    from tarhan.models.pn1d import PNDiode1D
+
+    one = PNDiode1D()
+    out = _dataclass_defaults(RectangularDiode2D)
+    for name in ("ni", "ut", "eps_s", "q", "mu_n", "mu_p"):
+        out[name] = getattr(one, name)
+    return out
+
+
+_SPEC_FIELDS = ("len_p", "len_n", "height", "h0", "gamma", "ny", "Na", "Nd")
+
+
+@dataclass(frozen=True)
+class Runner:
+    """What `run solve` needs to know to run one capability end to end."""
+
+    solve: Callable
+    device: Callable[[], dict]
+    method: str
+    default_max_iter: int
+    describe: str
+
+
+#: capability id -> its runner. A capability absent from this map is not
+#: runnable from the CLI even if the registry calls it validated: being proven
+#: and being wired up are different facts and the error says which.
+RUNNERS = {
+    "semiconductor.pn.drift-diffusion.1d.steady": Runner(
+        solve=_solve_pn1d_steady, device=_resolved_device_1d,
+        method="gummel", default_max_iter=60,
+        describe="PNDiode1D defaults"),
+    "semiconductor.pn.drift-diffusion.2d.steady": Runner(
+        solve=_solve_pn2d_steady, device=_resolved_device_2d,
+        method="gummel-newton", default_max_iter=200,
+        describe="RectangularDiode2D defaults, PNDiode1D constants"),
+}
 
 
 def _run_solve(out: cliout.Output, args) -> int:
@@ -257,9 +351,12 @@ def _run_solve(out: cliout.Output, args) -> int:
     # left input.lock.toml locking nothing — a run could not be reproduced from
     # its own record, and two devices differing in doping shared a directory.
     # Reported in review against the published version.
-    inputs = {"bias_v": float(args.bias), **_resolved_device()}
-    solver = {"method": "gummel", "tol": float(args.tol),
-              "max_iter": int(args.max_iter)}
+    runner = RUNNERS[cap.id]
+    inputs = {"bias_v": float(args.bias), **runner.device()}
+    max_iter = (runner.default_max_iter if args.max_iter is None
+                else int(args.max_iter))
+    solver = {"method": runner.method, "tol": float(args.tol),
+              "max_iter": max_iter}
     forge = _make_forge(out, ["SOLVE"], style="indicator",
                         graphics=args.graphics, pin="auto")
     try:
@@ -275,8 +372,8 @@ def _run_solve(out: cliout.Output, args) -> int:
                 forge.tick(within=(index + 1) / max(total, 1),
                            detail=f"gummel iteration {index + 1}")
 
-            metrics, fields = RUNNERS[cap.id]({**inputs, **solver},
-                                              on_iteration=report)
+            metrics, fields = runner.solve({**inputs, **solver},
+                                           on_iteration=report)
             forge.finish(f"{metrics['gummel_iterations']} iterations")
             forge.converged(f"current {metrics['current_a_cm2']:.4e} A/cm^2")
     except RuntimeError as exc:
@@ -290,7 +387,7 @@ def _run_solve(out: cliout.Output, args) -> int:
     path = artifact.write_run(
         args.output, capability=cap.id, capability_status=cap.status,
         inputs=inputs, solver=solver, metrics=metrics,
-        provenance={"model": cap.source, "device": "PNDiode1D defaults",
+        provenance={"model": cap.source, "device": runner.describe,
                     "scenario": f"single bias {args.bias} V"},
         status="converged", command=f"tarhan run solve {cap.id}",
         version=__version__, fields_data=fields,
@@ -670,7 +767,12 @@ def build_parser():
                          help="applied bias in volts (default: 0.3)")
     p_solve.add_argument("--tol", type=float, default=1e-9,
                          help="solver tolerance; part of the run id")
-    p_solve.add_argument("--max-iter", dest="max_iter", type=int, default=60)
+    # No default here: each capability carries its own, because 60 Gummel
+    # iterations is generous in 1D and tight in 2D. A default on the flag would
+    # silently impose the 1D budget on every capability added later.
+    p_solve.add_argument("--max-iter", dest="max_iter", type=int, default=None,
+                         help="solver iteration budget (default: the "
+                              "capability's own)")
     p_solve.add_argument("--output", default="runs",
                          help="directory to write run artifacts into")
     p_rshow = run_sub.add_parser("show", help="reopen a run by id")

@@ -231,8 +231,16 @@ def contact_current(dev: PNDiode2D, state, contact: str):
 
 
 def solve_bias(dev: PNDiode2D, v_applied: float, state=None,
-               gummel_tol: float = 1e-9, max_gummel: int = 200):
-    """Tek bias noktası; ``state=None`` ise dengeden başlar."""
+               gummel_tol: float = 1e-9, max_gummel: int = 200,
+               on_iteration=None):
+    """Tek bias noktası; ``state=None`` ise dengeden başlar.
+
+    ``on_iteration(index, total)`` her Gummel adımından ÖNCE çağrılır. Bütün
+    çözüm tek bir bloklayan çağrı olduğu için, çağıranın ekrana bir şey
+    çizebileceği tek an budur — 1D tarafında bu geri çağrı yokken `run solve`
+    begin() ile finish() arasında sıfır bayt yazıyordu, yani uzun bir çözümde
+    gösterge ancak iş bittikten sonra beliriyordu (incelemede yakalandı).
+    """
     psi_bc, n_bc, p_bc = dev._contact_state(v_applied)
     delta = dev.delta
 
@@ -254,6 +262,8 @@ def solve_bias(dev: PNDiode2D, v_applied: float, state=None,
             phi_p[i] = level
 
     for g in range(max_gummel):
+        if on_iteration is not None:
+            on_iteration(g, max_gummel)
         psi_old = psi.copy()
         psi, _ = _poisson_newton(dev, psi, phi_n, phi_p, psi_bc)
         n_h = _continuity_solve(dev, psi, "electron", n_bc)

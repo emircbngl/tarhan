@@ -134,12 +134,15 @@ REGISTRY: Tuple[Capability, ...] = (
         time="steady",
         status="validated",
         source="models/pn2d.py",
-        inputs=("triangular mesh (read, never generated)", "net doping",
+        inputs=("triangular mesh — supplied, or generated for the one "
+                "rectangular diode shape", "net doping",
                 "contact node sets", "bias"),
         produces=("psi, n, p on the mesh", "contact currents", "I-V sweep"),
         limits=("the mesh must be Delaunay; the box method's positivity "
                 "guarantee rests on it",
-                "meshes are read, never generated or repaired",
+                "one generated shape only — an axis-aligned rectangular pn "
+                "diode; any other geometry must be supplied as a mesh",
+                "meshes are read, never repaired",
                 "steady state only",
                 "not exposed on the MCP tool surface"),
         evidence=(
@@ -211,7 +214,8 @@ REGISTRY: Tuple[Capability, ...] = (
         time="transient",
         status="validated",
         source="models/pn2d.py",
-        inputs=("triangular mesh (read, never generated)", "net doping",
+        inputs=("triangular mesh — supplied, or generated for the one "
+                "rectangular diode shape", "net doping",
                 "contact node sets", "bias", "initial (n, p) state"),
         produces=("time-resolved fields on the mesh", "the seconds axis"),
         limits=("no displacement current, as in 1D: the terminal current omits "
