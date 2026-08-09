@@ -97,6 +97,48 @@ tarhan run solve <capability-id> --device device.toml --output runs/
 tarhan run sweep <capability-id> --vary bias_v=0.2,0.3,0.4 --output runs/
 ```
 
+## Candidates
+
+```bash
+tarhan candidate list --from candidates.toml
+tarhan candidate show <candidate-id> --from candidates.toml
+tarhan candidate screen --from candidates.toml --require mu_n>=1000
+tarhan run solve <capability-id> --candidate candidates.toml --candidate-id <candidate-id>
+```
+
+Roadmap §5.1: a candidate is not free text and not a single score. A property
+is a **value, a unit, a basis and a doubt** — `1350` is not a mobility, and the
+loader refuses a value with no unit, a `basis` outside
+`measured | computed | inferred`, and a `measured` value with no source (the
+strongest claim available with nothing behind it).
+
+**No material database ships, deliberately.** Property values written from
+memory would be unverifiable numbers wearing the authority of a package.
+Candidates come from a file you supply; a test asserts no data file appears in
+the package, so adding one is a decision somebody has to argue for.
+
+Two behaviours are the point of the whole thing:
+
+* **Uncertainty can make a threshold undecidable.** `mu_n = 1000 ± 50` against
+  `mu_n>=1000` is neither pass nor fail, and `screen` says `undecided` rather
+  than letting the nominal value cast a vote it has not earned. A screen that
+  resolves every borderline case one way produces a shortlist whose length is a
+  property of the rounding. `undecided` is **not** a soft fail.
+* **Applicability is what is MISSING.** A candidate that cannot drive a model is
+  not "unsuitable" — it is missing `ni, eps_s, mu_p`, and those are the
+  measurements somebody would have to make. `--candidate` refuses an incomplete
+  material rather than defaulting the gaps, because a default substitutes some
+  other material's number and the run would then describe a material that does
+  not exist.
+
+`screen` reports **every** candidate, never only the survivors: a shortlist
+alone hides how selective the screen was, and hides which candidates were
+dropped for want of a measurement rather than for being unsuitable.
+
+`rank` is NOT built. §10 forbids a single unexplained "best material" score, so
+it needs a Pareto front with weights and the uncertainty's effect shown — that
+is a design slice, not a missing function.
+
 `--device` takes a flat `.toml` or `.json` of overrides for the capability's own
 device. A key that is not part of that device is **named and refused**, not
 dropped — a misspelt key silently ignored would leave a run looking like it

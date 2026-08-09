@@ -405,6 +405,105 @@ RUNNERS = {
 }
 
 
+def _load_candidates_or_none(out: cliout.Output, path):
+    from tarhan import candidate as cand
+
+    try:
+        return cand.load_candidates(path)
+    except (cand.CandidateError, OSError, ValueError) as exc:
+        out.error(str(exc))
+        return None
+
+
+def _candidate_list(out: cliout.Output, args) -> int:
+    from tarhan import candidate as cand
+
+    candidates = _load_candidates_or_none(out, args.source)
+    if candidates is None:
+        return cliout.EXIT_INPUT
+
+    rows = []
+    for item in candidates:
+        row = {"identifier": item.identifier,
+               "composition": item.composition,
+               "properties": len(item.properties)}
+        for capability_id in sorted(cand.MATERIAL_PARAMETERS):
+            fit = cand.applicability(item, capability_id)
+            # The MISSING names, not a yes/no: they are the measurements
+            # somebody would have to make, which is the actionable part.
+            row[capability_id] = ("usable" if fit.usable
+                                  else "missing " + ",".join(fit.missing))
+        rows.append(row)
+    out.emit(rows, tuple(rows[0]))
+    return cliout.EXIT_OK
+
+
+def _candidate_show(out: cliout.Output, args) -> int:
+    candidates = _load_candidates_or_none(out, args.source)
+    if candidates is None:
+        return cliout.EXIT_INPUT
+
+    match = next((c for c in candidates if c.identifier == args.candidate_id),
+                 None)
+    if match is None:
+        out.error(f"no such candidate: {args.candidate_id}")
+        out.note("run `tarhan candidate list --from <file>` to see the ids")
+        return cliout.EXIT_INPUT
+
+    rows = []
+    for name, prop in sorted(match.properties.items()):
+        low, high = prop.interval
+        rows.append({"property": name, "value": prop.value, "unit": prop.unit,
+                     "basis": prop.basis,
+                     "uncertainty": ("" if prop.uncertainty is None
+                                     else prop.uncertainty),
+                     "low": low, "high": high, "source": prop.source})
+    out.emit(rows, ("property", "value", "unit", "basis", "uncertainty",
+                    "low", "high", "source"))
+    return cliout.EXIT_OK
+
+
+def _candidate_screen(out: cliout.Output, args) -> int:
+    """Hard thresholds, with the undecided cases kept as undecided."""
+    from tarhan import candidate as cand
+
+    candidates = _load_candidates_or_none(out, args.source)
+    if candidates is None:
+        return cliout.EXIT_INPUT
+    if not args.require:
+        out.error("a screen needs at least one --require NAME>=VALUE")
+        return cliout.EXIT_INPUT
+    try:
+        thresholds = [cand.parse_threshold(text) for text in args.require]
+    except cand.CandidateError as exc:
+        out.error(str(exc))
+        return cliout.EXIT_INPUT
+
+    report = cand.screen(candidates, thresholds)
+    rows = []
+    for result in report["results"]:
+        reasons = [j.detail for j in result["judgements"]
+                   if j.verdict != "pass"]
+        rows.append({"identifier": result["identifier"],
+                     "verdict": result["verdict"],
+                     "why": "; ".join(reasons)})
+    out.emit(rows, ("identifier", "verdict", "why"))
+
+    counts = {v: sum(1 for r in rows if r["verdict"] == v)
+              for v in cand.VERDICTS}
+    # Every candidate is reported, never only the survivors: a screen that
+    # returns a shortlist alone hides its own selectivity, and hides which
+    # candidates were dropped for want of a MEASUREMENT rather than for being
+    # unsuitable.
+    out.note(f"{counts['pass']} pass, {counts['fail']} fail, "
+             f"{counts['undecided']} undecided out of {len(rows)}")
+    if counts["undecided"]:
+        out.note("undecided is not a soft fail: the uncertainty straddles the "
+                 "bound, so neither answer is supportable without a better "
+                 "measurement")
+    return cliout.EXIT_OK
+
+
 #: The axis that is not part of any device: the bias is the terminal condition,
 #: not a property of the thing being biased.
 BIAS_AXIS = "bias_v"
@@ -456,6 +555,27 @@ def _run_solve(out: cliout.Output, args) -> int:
     # Reported in review against the published version.
     runner = RUNNERS[cap.id]
     device_inputs = runner.device()
+    if args.candidate:
+        # The join that stops a candidate from being provenance-less JSON: a
+        # material is real here only if a validated model can be run on it.
+        from tarhan import candidate as cand
+
+        candidates = _load_candidates_or_none(out, args.candidate)
+        if candidates is None:
+            return cliout.EXIT_INPUT
+        match = next((c for c in candidates
+                      if c.identifier == args.candidate_id), None)
+        if match is None:
+            out.error(f"no such candidate: {args.candidate_id}")
+            out.note("run `tarhan candidate list --from <file>` to see the ids")
+            return cliout.EXIT_INPUT
+        try:
+            device_inputs = _merge_device(
+                device_inputs, cand.device_overrides(match, cap.id),
+                f"candidate {match.identifier}")
+        except cand.CandidateError as exc:
+            out.error(str(exc))
+            return cliout.EXIT_INPUT
     if args.device:
         try:
             device_inputs = _merge_device(device_inputs,
@@ -506,7 +626,16 @@ def _run_solve(out: cliout.Output, args) -> int:
     path = artifact.write_run(
         args.output, capability=cap.id, capability_status=cap.status,
         inputs=inputs, solver=solver, metrics=metrics,
-        provenance={"model": cap.source, "device": runner.describe,
+        provenance={"model": cap.source,
+                    # "defaults" stops being true the moment anything overrides
+                    # them, and a provenance record that says "defaults" over a
+                    # candidate's properties is the wrong kind of wrong.
+                    "device": (runner.describe if not (args.device or
+                                                       args.candidate)
+                               else f"{runner.describe}, overridden"),
+                    "candidate": args.candidate_id or "none",
+                    "device_file": Path(args.device).name if args.device
+                                   else "none",
                     "scenario": f"single bias {args.bias} V"},
         status="converged", command=f"tarhan run solve {cap.id}",
         version=__version__, fields_data=fields,
@@ -1057,6 +1186,36 @@ def build_parser():
                     "form a script does not have to parse.")
     p_show.add_argument("capability_id", metavar="<capability-id>")
 
+    p_cand = sub.add_parser(
+        "candidate",
+        help="materials as things that can be argued with",
+        description="No material database ships with TARHAN: property values "
+                    "written from memory would be unverifiable numbers wearing "
+                    "the authority of a package. Candidates come from a file "
+                    "you supply.")
+    cand_sub = p_cand.add_subparsers(dest="cand_command")
+    p_clist = cand_sub.add_parser(
+        "list", help="every candidate, and which models it can drive")
+    p_cshow = cand_sub.add_parser(
+        "show", help="one candidate's properties, with basis and uncertainty")
+    p_cshow.add_argument("candidate_id", metavar="<candidate-id>")
+    p_cscreen = cand_sub.add_parser(
+        "screen",
+        help="apply hard thresholds",
+        description="Reports EVERY candidate, not only the survivors: a "
+                    "shortlist alone hides how selective the screen was, and "
+                    "hides which candidates were dropped for want of a "
+                    "measurement rather than for being unsuitable. A value "
+                    "whose uncertainty straddles a bound is `undecided`, "
+                    "which is not a soft fail.")
+    p_cscreen.add_argument("--require", action="append", default=[],
+                           metavar="NAME>=VALUE",
+                           help="a hard threshold; repeat for more")
+    for parser_ in (p_clist, p_cshow, p_cscreen):
+        parser_.add_argument("--from", dest="source", required=True,
+                             metavar="PATH",
+                             help="a .toml or .json file of candidates")
+
     p_run = sub.add_parser("run", help="solve, and leave an artifact behind")
     run_sub = p_run.add_subparsers(dest="run_command")
     p_solve = run_sub.add_parser(
@@ -1074,6 +1233,11 @@ def build_parser():
     # No default here: each capability carries its own, because 60 Gummel
     # iterations is generous in 1D and tight in 2D. A default on the flag would
     # silently impose the 1D budget on every capability added later.
+    p_solve.add_argument("--candidate", metavar="PATH", default=None,
+                         help="a candidate file; with --candidate-id, the "
+                              "material's properties become device overrides")
+    p_solve.add_argument("--candidate-id", dest="candidate_id", default=None,
+                         metavar="<candidate-id>")
     p_solve.add_argument("--device", metavar="PATH", default=None,
                          help="a .toml or .json file of device overrides. "
                               "Keys must belong to the capability's own "
@@ -1141,7 +1305,7 @@ def build_parser():
                         help="never open a window (headless/CI)")
 
     return parser, {"capabilities": p_cap, "run": p_run,
-                    "compare": p_cmp}
+                    "compare": p_cmp, "candidate": p_cand}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1149,6 +1313,7 @@ def main(argv: list[str] | None = None) -> int:
     parser, groups = build_parser()
     p_cap, p_run, p_cmp = (groups["capabilities"], groups["run"],
                            groups["compare"])
+    p_cand = groups["candidate"]
     args = parser.parse_args(argv)
     out = cliout.Output(fmt=args.format, color=args.color, quiet=args.quiet)
 
@@ -1173,6 +1338,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.cap_command == "show":
                 return _capabilities_show(out, args.capability_id)
             p_cap.print_help()
+            return cliout.EXIT_INPUT
+
+        if args.command == "candidate":
+            if args.cand_command == "list":
+                return _candidate_list(out, args)
+            if args.cand_command == "show":
+                return _candidate_show(out, args)
+            if args.cand_command == "screen":
+                return _candidate_screen(out, args)
+            p_cand.print_help()
             return cliout.EXIT_INPUT
 
         if args.command == "run":

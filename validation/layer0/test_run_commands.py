@@ -686,3 +686,131 @@ def test_a_sweep_point_is_comparable_with_its_neighbour(tmp_path):
     assert "different inputs" in proc.stderr        # only the inputs differ
     assert "different solver" not in proc.stderr
     assert "different build" not in proc.stderr
+
+
+# --- candidates driving a real solve --------------------------------------
+
+CANDIDATES = """
+[SYNTH-A]
+composition = "SyntheticA"
+[SYNTH-A.properties.ni]
+value = 1e10
+unit = "cm^-3"
+basis = "computed"
+[SYNTH-A.properties.eps_s]
+value = 1.0e-12
+unit = "F/cm"
+basis = "computed"
+[SYNTH-A.properties.mu_n]
+value = 1000.0
+unit = "cm^2/Vs"
+basis = "computed"
+[SYNTH-A.properties.mu_p]
+value = 400.0
+unit = "cm^2/Vs"
+basis = "computed"
+
+[SYNTH-PARTIAL]
+[SYNTH-PARTIAL.properties.mu_n]
+value = 980.0
+unit = "cm^2/Vs"
+basis = "inferred"
+uncertainty = 60.0
+"""
+
+
+def _candidates(tmp_path):
+    path = tmp_path / "candidates.toml"
+    path.write_text(CANDIDATES, encoding="utf-8")
+    return str(path)
+
+
+def test_a_candidate_can_drive_a_validated_solve(tmp_path):
+    """The join that stops a candidate from being provenance-less JSON.
+
+    A material is real here only if a validated model can be run on it, and
+    the result must be a normal artifact that records WHICH material it was.
+    """
+    proc = run("--format", "json", "run", "solve", PN1D,
+               "--candidate", _candidates(tmp_path),
+               "--candidate-id", "SYNTH-A",
+               "--bias", "0.3", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK, proc.stderr
+    record = json.loads(proc.stdout)[0]
+
+    import tomllib
+    lock = tomllib.loads((tmp_path / record["run_id"] / "input.lock.toml")
+                         .read_text(encoding="utf-8"))
+    assert (lock["mu_n"], lock["mu_p"], lock["ni"], lock["eps_s"]) == \
+        (1000.0, 400.0, 1e10, 1e-12)
+
+    provenance = json.loads(
+        (tmp_path / record["run_id"] / "provenance.json").read_text())
+    assert provenance["candidate"] == "SYNTH-A"
+    assert "overridden" in provenance["device"], \
+        "provenance still claimed defaults over a candidate's properties"
+
+
+def test_a_run_without_a_candidate_says_so_rather_than_leaving_it_blank(
+        tmp_path):
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--bias", "0.3", "--output",
+                            str(tmp_path)).stdout)[0]
+    provenance = json.loads(
+        (tmp_path / record["run_id"] / "provenance.json").read_text())
+    assert provenance["candidate"] == "none"
+    assert provenance["device"] == "PNDiode1D defaults"
+
+
+def test_an_incomplete_candidate_is_refused_with_the_missing_names(tmp_path):
+    """Defaulting the gaps would solve a material that does not exist."""
+    out_dir = tmp_path / "runs"
+    proc = run("run", "solve", PN1D, "--candidate", _candidates(tmp_path),
+               "--candidate-id", "SYNTH-PARTIAL", "--output", str(out_dir))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "missing ni, eps_s, mu_p" in proc.stderr
+    assert not out_dir.exists()
+
+
+def test_an_unknown_candidate_id_is_input_not_internal(tmp_path):
+    proc = run("run", "solve", PN1D, "--candidate", _candidates(tmp_path),
+               "--candidate-id", "SYNTH-NOPE", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "no such candidate" in proc.stderr
+
+
+def test_two_candidates_are_two_problems(tmp_path):
+    """The material is part of the problem's identity, so two materials must
+    not share a run directory."""
+    path = _candidates(tmp_path)
+    first = json.loads(run("--format", "json", "run", "solve", PN1D,
+                           "--candidate", path, "--candidate-id", "SYNTH-A",
+                           "--output", str(tmp_path)).stdout)[0]
+    second = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--output", str(tmp_path)).stdout)[0]
+    assert first["run_id"] != second["run_id"]
+    assert first["current_a_cm2"] != second["current_a_cm2"]
+
+
+def test_candidate_screen_reports_every_candidate(tmp_path):
+    proc = run("--format", "json", "candidate", "screen",
+               "--from", _candidates(tmp_path), "--require", "mu_n>=1000")
+    assert proc.returncode == cliout.EXIT_OK
+    rows = {r["identifier"]: r["verdict"] for r in json.loads(proc.stdout)}
+    assert rows == {"SYNTH-A": "pass", "SYNTH-PARTIAL": "undecided"}
+    assert "undecided is not a soft fail" in proc.stderr
+
+
+def test_candidate_list_names_what_each_material_is_missing(tmp_path):
+    proc = run("--format", "json", "candidate", "list",
+               "--from", _candidates(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    rows = {r["identifier"]: r for r in json.loads(proc.stdout)}
+    assert rows["SYNTH-A"][PN1D] == "usable"
+    assert "missing" in rows["SYNTH-PARTIAL"][PN1D]
+
+
+def test_a_screen_with_no_threshold_is_refused(tmp_path):
+    proc = run("candidate", "screen", "--from", _candidates(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "at least one --require" in proc.stderr
