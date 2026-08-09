@@ -71,6 +71,69 @@ def test_a_different_tolerance_is_a_different_problem(tmp_path):
     assert len(list(tmp_path.iterdir())) == 2
 
 
+# --- the display advances DURING the solve, not after it ------------------
+
+def test_the_gummel_loop_reports_every_outer_iteration():
+    """Without this the progress display is decoration.
+
+    The whole solve is one blocking call, so a caller has no other moment to
+    draw in. Measured before the callback existed: zero bytes were written
+    between begin() and finish(), which meant a long solve showed nothing while
+    anyone was waiting and the indicator only appeared once the work was over.
+    Reported by Codex against the published commit.
+    """
+    from tarhan.models.pn1d import PNDiode1D, solve_bias
+
+    seen = []
+    state = solve_bias(PNDiode1D(), 0.30,
+                       on_iteration=lambda i, n: seen.append((i, n)))
+    assert seen, "the solver never reported progress"
+    assert len(seen) == state["gummel_iters"]
+    assert [i for i, _ in seen] == list(range(len(seen)))
+    assert all(total == 60 for _, total in seen)
+
+
+def test_the_runner_forwards_the_callback():
+    from tarhan import cli
+
+    seen = []
+    cli._solve_pn1d_steady({"bias_v": 0.3, "tol": 1e-9, "max_iter": 60},
+                           on_iteration=lambda i, n: seen.append(i))
+    assert seen
+
+
+def test_the_indicator_actually_advances_while_the_solver_runs():
+    """The regression this fix exists for, asserted in bytes.
+
+    A display that only draws after the work is finished is worse than none:
+    it looks like feedback and never arrives while anyone is waiting.
+    """
+    import io
+
+    from tarhan import cli, cliout
+    from tarhan.forge import Forge
+
+    class FakeTTY(io.StringIO):
+        encoding = "utf-8"
+
+        def isatty(self):
+            return True
+
+    out = cliout.Output(color="always", stdout=io.StringIO(), stderr=FakeTTY())
+    forge = Forge(["SOLVE"], out, pin="auto", pin_after=0.0)
+    with forge:
+        forge.begin("SOLVE", "newton")
+        before = len(out.stderr.getvalue())
+        cli._solve_pn1d_steady(
+            {"bias_v": 0.3, "tol": 1e-9, "max_iter": 60},
+            on_iteration=lambda i, n: forge.tick(within=(i + 1) / n))
+        during = len(out.stderr.getvalue()) - before
+        forge.finish("done")
+        forge.converged("done")
+    assert during > 0, "nothing was drawn while the solver was running"
+    assert out.stdout.getvalue() == "", "the display must never touch stdout"
+
+
 # --- the refusals ---------------------------------------------------------
 
 def test_a_blocked_capability_is_refused_before_any_work(tmp_path):

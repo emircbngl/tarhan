@@ -167,13 +167,17 @@ def _capabilities_doctor(out: cliout.Output, graphics: str = "auto") -> int:
             if any(ok is False for _, ok, _ in results) else cliout.EXIT_OK)
 
 
-def _solve_pn1d_steady(inputs):
+def _solve_pn1d_steady(inputs, on_iteration=None):
     """The one capability wired to `run solve` today.
 
-    Returns (metrics, fields, solver_used). Raises RuntimeError when Gummel
-    fails to converge — the caller turns that into EXIT_NO_CONVERGENCE rather
-    than a traceback, because a solver giving up is a legitimate outcome the
-    caller has to be able to branch on.
+    Returns (metrics, fields). Raises RuntimeError when Gummel fails to
+    converge — the caller turns that into EXIT_NO_CONVERGENCE rather than a
+    traceback, because a solver giving up is a legitimate outcome the caller
+    has to be able to branch on.
+
+    ``on_iteration`` is forwarded to the Gummel loop. Without it the display
+    cannot draw anything while the solve runs, because the whole solve is one
+    blocking call.
     """
     from tarhan.models.pn1d import PNDiode1D, solve_bias
 
@@ -182,7 +186,8 @@ def _solve_pn1d_steady(inputs):
     dev = PNDiode1D(**device)
     state = solve_bias(dev, inputs["bias_v"],
                        gummel_tol=inputs.get("tol", 1e-9),
-                       max_gummel=int(inputs.get("max_iter", 60)))
+                       max_gummel=int(inputs.get("max_iter", 60)),
+                       on_iteration=on_iteration)
     metrics = {"current_a_cm2": float(state["j"]),
                "gummel_iterations": int(state["gummel_iters"]),
                "grid_points": int(len(state["x_hat"]))}
@@ -228,8 +233,18 @@ def _run_solve(out: cliout.Output, args) -> int:
     try:
         with forge:
             forge.begin("SOLVE", f"{cap.family} at {args.bias} V")
-            forge.tick()
-            metrics, fields = RUNNERS[cap.id]({**inputs, **solver})
+
+            def report(index, total):
+                # The solve is one blocking call, so this is the ONLY moment
+                # the display can advance. Measured before it existed: zero
+                # bytes were written between begin() and finish(), which meant
+                # a long solve showed nothing at all and the indicator only
+                # appeared after the work was already over.
+                forge.tick(within=(index + 1) / max(total, 1),
+                           detail=f"gummel iteration {index + 1}")
+
+            metrics, fields = RUNNERS[cap.id]({**inputs, **solver},
+                                              on_iteration=report)
             forge.finish(f"{metrics['gummel_iterations']} iterations")
             forge.converged(f"current {metrics['current_a_cm2']:.4e} A/cm^2")
     except RuntimeError as exc:

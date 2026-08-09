@@ -351,8 +351,15 @@ def _contact_densities(n_dop_val, delta):
 
 
 def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
-               gummel_tol: float = 1e-9, max_gummel: int = 60):
-    """Tek bias noktası; state=None ise dengeden başlar. Döner: durum sözlüğü."""
+               gummel_tol: float = 1e-9, max_gummel: int = 60,
+               on_iteration=None):
+    """Tek bias noktası; state=None ise dengeden başlar. Döner: durum sözlüğü.
+
+    ``on_iteration(index, total)`` her Gummel dış adımının başında çağrılır.
+    Bir ilerleme göstergesi bunsuz yalancı olur: çağıran, bloklayan tek bir
+    çağrı boyunca hiçbir şey çizemez, gösterge de ancak iş BİTTİKTEN sonra
+    belirir. Ölçüldü — bloklayan çağrı süresince yazılan bayt sayısı sıfırdı.
+    """
     xp = backend.xp()
     x_hat = state["x_hat"] if state else dev.build_grid()
     n_dop = dev.doping_hat(x_hat)
@@ -389,6 +396,8 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
     p_h = delta * xp.exp(xp.clip(phi_p - psi, -700, 700))
 
     for g in range(max_gummel):
+        if on_iteration is not None:
+            on_iteration(g, max_gummel)
         psi_old = xp.array(psi, copy=True)
         psi, _ = _poisson_newton(dev, x_hat, psi, phi_n, phi_p)
         if dev.tau_n is not None:
