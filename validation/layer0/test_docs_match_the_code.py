@@ -238,3 +238,49 @@ def test_every_version_doi_is_described_with_its_own_licence():
     for version, licence in (("v0.1.0", "AGPL-3.0-or-later"),
                              ("v0.2.0", "Apache-2.0")):
         assert f"Version DOI — {version} ({licence})" in text
+
+
+# --- the scheduled oracle workflow must still point at real files ----------
+
+def _oracle_workflow():
+    return (REPO / ".github" / "workflows" / "oracle.yml").read_text(
+        encoding="utf-8")
+
+
+def test_every_test_file_the_oracle_job_runs_exists():
+    """A renamed test file would make the weekly job red a week later.
+
+    The cross-oracle workflow names its five files by path, because running
+    the whole suite there would spend a lot of CI minutes re-proving what
+    every push already proves. The cost of naming paths is that they rot; this
+    is the check that makes them rot loudly and locally instead.
+    """
+    import re
+
+    listed = re.findall(r"(validation/\S+\.py)", _oracle_workflow())
+    assert len(listed) >= 5, "the workflow stopped naming test files"
+    for path in set(listed):
+        assert (REPO / path).exists(), f"oracle.yml runs {path}, which is gone"
+
+
+def test_the_oracle_job_refuses_to_pass_when_devsim_is_absent():
+    """The property that makes the job worth having.
+
+    Every comparison is behind importorskip, so without an explicit guard a
+    run with no DEVSIM skips everything and reports green — manufacturing
+    confidence rather than collecting evidence. Two things enforce it: an
+    import that must succeed, and a skip check after the run.
+    """
+    text = _oracle_workflow()
+    assert "import devsim" in text
+    assert "skipped" in text, "nothing fails the job when a comparison skips"
+
+
+def test_the_oracle_job_is_not_wired_to_run_on_every_push():
+    """Deliberate: DEVSIM is heavy and these comparisons are slow. Drift
+    against an external code is a slow-moving risk, so it is a schedule plus a
+    manual trigger — stated here so 'why is this not in ci.yml' has an answer
+    that is not a guess."""
+    text = _oracle_workflow()
+    assert "schedule:" in text and "workflow_dispatch:" in text
+    assert "\non:\n  push" not in text

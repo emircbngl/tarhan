@@ -179,6 +179,77 @@ def _capabilities_doctor(out: cliout.Output, graphics: str = "auto") -> int:
             if any(ok is False for _, ok, _ in results) else cliout.EXIT_OK)
 
 
+#: How ``None`` survives a round trip through TOML, which has no null.
+NONE_IN_LOCK = "none"
+
+
+def _from_lock(value):
+    """Undo the lock file's spelling of ``None``."""
+    return None if value == NONE_IN_LOCK else value
+
+
+def _load_device_spec(path):
+    """Read a device override file. TOML or JSON, decided by extension.
+
+    Returns a flat mapping. Nested tables are refused rather than flattened:
+    a device is a flat set of scalars, and quietly accepting `[doping] Na=...`
+    would put a value in the lock file under a key the solver never reads.
+    """
+    import json
+    import tomllib
+
+    path = Path(path)
+    raw = path.read_bytes()
+    if path.suffix.lower() == ".json":
+        spec = json.loads(raw.decode("utf-8"))
+    elif path.suffix.lower() == ".toml":
+        spec = tomllib.loads(raw.decode("utf-8"))
+    else:
+        raise ValueError(f"{path.name}: expected a .toml or .json device file")
+    if not isinstance(spec, dict):
+        raise ValueError(f"{path.name}: expected a table of scalars at the top")
+    nested = sorted(k for k, v in spec.items() if isinstance(v, (dict, list)))
+    if nested:
+        raise ValueError(
+            f"{path.name}: a device is a flat set of scalars; {nested} is not")
+    return spec
+
+
+def _merge_device(defaults, overrides, source):
+    """Apply overrides to a resolved device, refusing what cannot apply.
+
+    Checked HERE rather than left to the dataclass because the two questions
+    are different: the dataclass knows whether a value is physically valid,
+    and only this knows whether the key means anything at all for the
+    capability being run. A misspelt key would otherwise be dropped in silence
+    and the run would look like it honoured a setting it never saw.
+    """
+    unknown = sorted(set(overrides) - set(defaults))
+    if unknown:
+        raise ValueError(
+            f"{source}: {unknown} is not part of this capability's device. "
+            f"It takes: {', '.join(sorted(defaults))}")
+
+    merged = dict(defaults)
+    for key, value in overrides.items():
+        default = defaults[key]
+        if isinstance(value, bool):
+            raise ValueError(f"{source}: {key} is a number, not a boolean")
+        if default == NONE_IN_LOCK:              # an optional field, e.g. tau_n
+            if value != NONE_IN_LOCK and not isinstance(value, (int, float)):
+                raise ValueError(f"{source}: {key} must be a number or "
+                                 f"{NONE_IN_LOCK!r}")
+        elif isinstance(default, int) and not isinstance(default, bool):
+            # ny is a node count. Accepting 4.5 here would silently truncate
+            # and give a mesh the lock file does not describe.
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"{source}: {key} must be a whole number")
+        elif not isinstance(value, (int, float)):
+            raise ValueError(f"{source}: {key} must be a number")
+        merged[key] = value
+    return merged
+
+
 def _solve_pn1d_steady(inputs, on_iteration=None):
     """The one capability wired to `run solve` today.
 
@@ -191,10 +262,17 @@ def _solve_pn1d_steady(inputs, on_iteration=None):
     cannot draw anything while the solve runs, because the whole solve is one
     blocking call.
     """
+    import dataclasses
+
     from tarhan.models.pn1d import PNDiode1D, solve_bias
 
-    device = {k: v for k, v in inputs.items()
-              if k in ("Na", "Nd", "ni", "ut", "len_p", "len_n")}
+    # Every INIT field, not a hand-listed six. The old list took Na, Nd, ni,
+    # ut, len_p and len_n and silently dropped eps_s, the mobilities, the grid
+    # controls and the SRH lifetimes. That was invisible while everything sat
+    # at its default and became a lie the moment `--device` could change one:
+    # the lock file would record the value and the solver would ignore it.
+    accepted = {f.name for f in dataclasses.fields(PNDiode1D) if f.init}
+    device = {k: _from_lock(v) for k, v in inputs.items() if k in accepted}
     dev = PNDiode1D(**device)
     state = solve_bias(dev, inputs["bias_v"],
                        gummel_tol=inputs.get("tol", 1e-9),
@@ -225,10 +303,9 @@ def _solve_pn2d_steady(inputs, on_iteration=None):
     from tarhan.models import pn2d
     from tarhan.models.diode2d_mesh import RectangularDiode2D, device
 
-    spec = RectangularDiode2D(**{k: v for k, v in inputs.items()
+    spec = RectangularDiode2D(**{k: _from_lock(v) for k, v in inputs.items()
                                  if k in _SPEC_FIELDS})
-    dev = device(spec, **{k: inputs[k] for k in
-                          ("ni", "ut", "eps_s", "q", "mu_n", "mu_p")
+    dev = device(spec, **{k: _from_lock(inputs[k]) for k in _PN2D_CONSTANTS
                           if k in inputs})
     state = pn2d.solve_bias(dev, inputs["bias_v"],
                             gummel_tol=inputs.get("tol", 1e-9),
@@ -290,12 +367,16 @@ def _resolved_device_2d() -> dict:
 
     one = PNDiode1D()
     out = _dataclass_defaults(RectangularDiode2D)
-    for name in ("ni", "ut", "eps_s", "q", "mu_n", "mu_p"):
+    for name in _PN2D_CONSTANTS:
         out[name] = getattr(one, name)
     return out
 
 
 _SPEC_FIELDS = ("len_p", "len_n", "height", "h0", "gamma", "ny", "Na", "Nd")
+
+#: Constants PNDiode2D takes directly, sourced from the 1D device so that a
+#: comparison across the two dimensions measures the mesh and not the physics.
+_PN2D_CONSTANTS = ("ni", "ut", "eps_s", "q", "mu_n", "mu_p")
 
 
 @dataclass(frozen=True)
@@ -324,35 +405,66 @@ RUNNERS = {
 }
 
 
-def _run_solve(out: cliout.Output, args) -> int:
-    """Solve, then leave a directory that can answer for the result."""
-    from tarhan import artifact
+#: The axis that is not part of any device: the bias is the terminal condition,
+#: not a property of the thing being biased.
+BIAS_AXIS = "bias_v"
 
+#: Terms a sweep may never vary — see :func:`_parse_vary`.
+SOLVER_TERMS = ("tol", "max_iter", "method")
+
+
+def _runnable_or_status(out: cliout.Output, capability_id):
+    """Resolve a capability to run, or say why it cannot be.
+
+    Returns ``(capability, None)`` or ``(None, exit_code)``. Shared by `solve`
+    and `sweep` so the two cannot drift into disagreeing about what is
+    runnable — the failure that would show up as a sweep happily running a
+    blocked capability that `solve` refuses.
+    """
     try:
-        cap = get(args.capability_id)
+        cap = get(capability_id)
     except CapabilityNotFound:
-        out.error(f"no such capability: {args.capability_id}")
+        out.error(f"no such capability: {capability_id}")
         out.note("run `tarhan capabilities list` to see the ids that exist")
-        return cliout.EXIT_INPUT
+        return None, cliout.EXIT_INPUT
 
     if not cap.runnable:
         out.error(f"{cap.id} is {cap.status}; refusing to solve it")
         out.note(cap.reason)
         if cap.needs:
             out.note(f"needs: {cap.needs}")
-        return cliout.EXIT_UNAVAILABLE
+        return None, cliout.EXIT_UNAVAILABLE
     if cap.id not in RUNNERS:
         out.error(f"{cap.id} is {cap.status} but is not wired to `run solve`")
         out.note("the physics is proven; the command surface for it is not "
                  "built. These are different things and this is the second.")
-        return cliout.EXIT_UNAVAILABLE
+        return None, cliout.EXIT_UNAVAILABLE
+    return cap, None
+
+
+def _run_solve(out: cliout.Output, args) -> int:
+    """Solve, then leave a directory that can answer for the result."""
+    from tarhan import artifact
+
+    cap, refusal = _runnable_or_status(out, args.capability_id)
+    if cap is None:
+        return refusal
 
     # The RESOLVED problem, not just what was typed. Recording only the bias
     # left input.lock.toml locking nothing — a run could not be reproduced from
     # its own record, and two devices differing in doping shared a directory.
     # Reported in review against the published version.
     runner = RUNNERS[cap.id]
-    inputs = {"bias_v": float(args.bias), **runner.device()}
+    device_inputs = runner.device()
+    if args.device:
+        try:
+            device_inputs = _merge_device(device_inputs,
+                                          _load_device_spec(args.device),
+                                          Path(args.device).name)
+        except (ValueError, OSError) as exc:
+            out.error(str(exc))
+            return cliout.EXIT_INPUT
+    inputs = {"bias_v": float(args.bias), **device_inputs}
     max_iter = (runner.default_max_iter if args.max_iter is None
                 else int(args.max_iter))
     solver = {"method": runner.method, "tol": float(args.tol),
@@ -376,6 +488,13 @@ def _run_solve(out: cliout.Output, args) -> int:
                                            on_iteration=report)
             forge.finish(f"{metrics['gummel_iterations']} iterations")
             forge.converged(f"current {metrics['current_a_cm2']:.4e} A/cm^2")
+    except ValueError as exc:
+        # A device that cannot exist: a negative length, a shrinking mesh step,
+        # a contact with no nodes. The dataclasses validate the physics and
+        # this turns their refusal into bad INPUT rather than an internal
+        # error, because the user typed it and can fix it.
+        out.error(f"the device cannot be built: {exc}")
+        return cliout.EXIT_INPUT
     except RuntimeError as exc:
         # The call site EXIT_NO_CONVERGENCE was defined for. A solver that
         # gives up is not a crash and must not be reported as one.
@@ -396,6 +515,191 @@ def _run_solve(out: cliout.Output, args) -> int:
     rows = [{"run_id": path.name, "capability": cap.id, **metrics}]
     out.emit(rows, tuple(rows[0]))
     out.note(f"artifact written to {path}")
+    return cliout.EXIT_OK
+
+
+def _parse_vary(specs, defaults, out):
+    """``name=v1,v2,...`` into an ordered mapping of axis -> values.
+
+    Returns None after reporting the error, so the caller exits 2. Every
+    refusal here is about keeping the sweep INTERPRETABLE: an axis nobody can
+    name, a value that is not a number, or a single-valued axis that would
+    quietly make the sweep a solve.
+    """
+    axes = {}
+    for spec in specs:
+        if "=" not in spec:
+            out.error(f"--vary {spec}: expected name=value,value,...")
+            return None
+        name, _, raw = spec.partition("=")
+        name = name.strip()
+        if name in axes:
+            out.error(f"--vary {name}: given twice; put every value in one list")
+            return None
+        if name in SOLVER_TERMS:
+            # The whole point of a sweep is that one thing changes. Varying the
+            # tolerance would produce rows that `compare runs` itself refuses
+            # to put side by side — §5.3 — so the table would be a ranking
+            # across a changed contract, which is the error this prevents.
+            out.error(f"--vary {name}: the solver contract is fixed across a "
+                      "sweep, or the rows would not be comparable")
+            out.note("run separate sweeps and compare them deliberately")
+            return None
+        if name != BIAS_AXIS and name not in defaults:
+            out.error(f"--vary {name}: not part of this capability's device. "
+                      f"It takes: {BIAS_AXIS}, {', '.join(sorted(defaults))}")
+            return None
+
+        values = []
+        for token in raw.split(","):
+            token = token.strip()
+            if not token:
+                continue
+            try:
+                value = int(token) if _looks_integral(token) else float(token)
+            except ValueError:
+                out.error(f"--vary {name}: {token!r} is not a number")
+                return None
+            if value in values:
+                out.error(f"--vary {name}: {token} appears twice")
+                return None
+            values.append(value)
+        if len(values) < 2:
+            out.error(f"--vary {name}: a sweep needs at least two values; "
+                      "one value is a solve")
+            return None
+        axes[name] = values
+    return axes
+
+
+def _looks_integral(token: str) -> bool:
+    """Whether a written value is a whole number, by its SPELLING.
+
+    ``ny=6`` must stay an int because the device refuses a fractional node
+    count, while ``6.0`` written deliberately is a float. Parsing by spelling
+    rather than by value keeps `--vary ny=4,6` working without letting
+    `--vary Na=1e16` become an int of a size nobody meant.
+    """
+    return token.lstrip("+-").isdigit()
+
+
+def _sweep_points(axes):
+    """Every combination, in the order the axes were given."""
+    import itertools
+
+    names = list(axes)
+    for combination in itertools.product(*(axes[n] for n in names)):
+        yield dict(zip(names, combination))
+
+
+def _run_sweep(out: cliout.Output, args) -> int:
+    """Solve a family of devices under ONE solver contract, and table them.
+
+    `run solve` answers "what does this device do". This answers the question
+    a sweep is actually for — "which of these devices does it best" — and the
+    difference that makes it trustworthy is the fixed contract: the tolerance
+    and iteration budget are identical for every row, so a column can be read
+    down. `compare runs` refuses exactly the comparison this makes safe, and
+    that is the same rule seen from the other side: it refuses because it
+    cannot know the contract held, and here it is held by construction.
+
+    Each point writes a NORMAL run artifact through the same path `run solve`
+    uses. There is no such thing as a sweep-flavoured result: a row is a run,
+    reopenable with `run show` and comparable with `compare runs`.
+    """
+    from tarhan import artifact
+
+    cap, refusal = _runnable_or_status(out, args.capability_id)
+    if cap is None:
+        return refusal
+
+    runner = RUNNERS[cap.id]
+    device_inputs = runner.device()
+    if args.device:
+        try:
+            device_inputs = _merge_device(device_inputs,
+                                          _load_device_spec(args.device),
+                                          Path(args.device).name)
+        except (ValueError, OSError) as exc:
+            out.error(str(exc))
+            return cliout.EXIT_INPUT
+
+    axes = _parse_vary(args.vary, device_inputs, out)
+    if axes is None:
+        return cliout.EXIT_INPUT
+
+    points = list(_sweep_points(axes))
+    max_iter = (runner.default_max_iter if args.max_iter is None
+                else int(args.max_iter))
+    solver = {"method": runner.method, "tol": float(args.tol),
+              "max_iter": max_iter}
+
+    rows, failures = [], 0
+    forge = _make_forge(out, ["SWEEP"], style="indicator",
+                        graphics=args.graphics, pin="auto")
+    with forge:
+        forge.begin("SWEEP", f"{len(points)} points of {cap.family}")
+        for index, point in enumerate(points):
+            inputs = dict(device_inputs)
+            bias = point.get(BIAS_AXIS, float(args.bias))
+            inputs.update({k: v for k, v in point.items() if k != BIAS_AXIS})
+            inputs["bias_v"] = float(bias)
+            forge.tick(within=(index + 1) / len(points),
+                       detail=f"point {index + 1}/{len(points)}")
+
+            row = {**point, "status": "converged", "run_id": ""}
+            try:
+                metrics, fields = runner.solve({**inputs, **solver})
+            except ValueError as exc:
+                # A device in the sweep that cannot exist. The sweep does not
+                # stop: the other points are still real results, and a table
+                # with a named gap says more than no table at all.
+                row["status"] = "invalid-device"
+                row["detail"] = str(exc)
+                failures += 1
+                rows.append(row)
+                continue
+            except RuntimeError:
+                row["status"] = "not-converged"
+                failures += 1
+                rows.append(row)
+                continue
+
+            path = artifact.write_run(
+                args.output, capability=cap.id, capability_status=cap.status,
+                inputs=inputs, solver=solver, metrics=metrics,
+                provenance={"model": cap.source, "device": runner.describe,
+                            "scenario": f"sweep point {point}"},
+                status="converged", command=f"tarhan run sweep {cap.id}",
+                version=__version__, fields_data=fields,
+                report=f"# {cap.id}\n\nsweep point {point}\n")
+            row["run_id"] = path.name
+            row.update(metrics)
+            rows.append(row)
+        forge.finish(f"{len(points)} points")
+        # converged()/failed() is what marks the display TERMINAL. Without it
+        # __exit__ force-renders again and the summary line prints twice.
+        settled = f"{len(points) - failures}/{len(points)} converged"
+        if failures:
+            forge.failed(settled)
+        else:
+            forge.converged(settled)
+
+    columns = list(axes) + ["status", "run_id"]
+    for row in rows:                       # metrics, in first-seen order
+        for key in row:
+            if key not in columns:
+                columns.append(key)
+    out.emit(rows, tuple(columns))
+    if failures:
+        out.error(f"{failures} of {len(points)} points did not produce a result")
+        out.note("the table above names each one; no artifact was written for "
+                 "them, because a partial state would claim more than the "
+                 "point earned")
+        return cliout.EXIT_NO_CONVERGENCE
+    out.note(f"{len(points)} runs written to {args.output}, one solver "
+             f"contract: {solver['method']}, tol {solver['tol']:g}, "
+             f"max_iter {solver['max_iter']}")
     return cliout.EXIT_OK
 
 
@@ -770,11 +1074,38 @@ def build_parser():
     # No default here: each capability carries its own, because 60 Gummel
     # iterations is generous in 1D and tight in 2D. A default on the flag would
     # silently impose the 1D budget on every capability added later.
+    p_solve.add_argument("--device", metavar="PATH", default=None,
+                         help="a .toml or .json file of device overrides. "
+                              "Keys must belong to the capability's own "
+                              "device; anything else is refused by name "
+                              "rather than dropped. The merged result is what "
+                              "lands in input.lock.toml and what names the run")
     p_solve.add_argument("--max-iter", dest="max_iter", type=int, default=None,
                          help="solver iteration budget (default: the "
                               "capability's own)")
     p_solve.add_argument("--output", default="runs",
                          help="directory to write run artifacts into")
+    p_sweep = run_sub.add_parser(
+        "sweep",
+        help="solve a family of devices under one solver contract",
+        description="Every point is solved with the SAME tolerance and "
+                    "iteration budget, which is what makes a column of the "
+                    "table readable down. Varying a solver term is refused "
+                    "for that reason. Each point writes an ordinary run "
+                    "artifact, so a row can be reopened with `run show`.")
+    p_sweep.add_argument("capability_id", metavar="<capability-id>")
+    p_sweep.add_argument("--vary", action="append", default=[],
+                         metavar="NAME=V1,V2,...",
+                         help="an axis to sweep; repeat for a grid. NAME is "
+                              "bias_v or any field of the capability's device")
+    p_sweep.add_argument("--bias", type=float, default=0.3,
+                         help="bias for points that do not vary it")
+    p_sweep.add_argument("--tol", type=float, default=1e-9)
+    p_sweep.add_argument("--max-iter", dest="max_iter", type=int, default=None)
+    p_sweep.add_argument("--device", metavar="PATH", default=None,
+                         help="base device the axes are applied on top of")
+    p_sweep.add_argument("--output", default="runs")
+
     p_rshow = run_sub.add_parser("show", help="reopen a run by id")
     p_rshow.add_argument("run_id", metavar="<run-id>")
     p_rshow.add_argument("--output", default="runs")
@@ -847,6 +1178,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             if args.run_command == "solve":
                 return _run_solve(out, args)
+            if args.run_command == "sweep":
+                return _run_sweep(out, args)
             if args.run_command == "show":
                 return _run_show(out, args)
             p_run.print_help()

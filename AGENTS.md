@@ -93,7 +93,26 @@ tarhan run solve <capability-id> --bias 0.3 --output runs/
 tarhan run show <run-id> --output runs/
 tarhan compare runs <run-a> <run-b> --output runs/
 tarhan compare runs <run-a> <run-b> --allow-build-diff --output runs/
+tarhan run solve <capability-id> --device device.toml --output runs/
+tarhan run sweep <capability-id> --vary bias_v=0.2,0.3,0.4 --output runs/
 ```
+
+`--device` takes a flat `.toml` or `.json` of overrides for the capability's own
+device. A key that is not part of that device is **named and refused**, not
+dropped — a misspelt key silently ignored would leave a run looking like it
+honoured a setting it never saw. The merged result is what lands in
+`input.lock.toml`, so it is also what names the run.
+
+`run sweep` is the candidate surface: `--vary NAME=V1,V2,...`, repeatable for a
+grid. Every point is solved under **one solver contract** — the tolerance and
+iteration budget are identical for every row, which is what makes a column
+readable downward. Varying a solver term is refused for that reason, and it is
+the same rule `compare runs` enforces from the other side: there it refuses
+because it cannot know the contract held; here the contract holds by
+construction. Each point writes an ordinary run artifact, so any row can be
+reopened with `run show`. A point whose device cannot exist, or whose solve does
+not converge, is named in the table with no artifact and the sweep exits `4`
+without throwing away the points that did work.
 
 `run solve` reaches two capabilities today: `…pn.drift-diffusion.1d.steady` and
 `…2d.steady`. The 2D one builds an axis-aligned rectangular pn diode from eight

@@ -21,6 +21,8 @@ import json
 import subprocess
 import sys
 
+import pytest
+
 from tarhan import cliout
 
 CMD = [sys.executable, "-m", "tarhan.cli"]
@@ -436,3 +438,251 @@ def test_each_capability_carries_its_own_iteration_budget(tmp_path):
     manifest = json.loads(
         (tmp_path / record["run_id"] / "manifest.json").read_text())
     assert manifest["solver"]["max_iter"] == 17
+
+
+# --- --device: the device stops being a constant -------------------------
+
+def _spec(tmp_path, text, name="device.toml"):
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def test_an_overridden_field_reaches_the_solver(tmp_path):
+    """The defect this surfaced, and the reason it is asserted on a NUMBER.
+
+    `_solve_pn1d_steady` built PNDiode1D from a hand-listed six fields and
+    dropped the other nine — eps_s, both mobilities, the grid controls, the SRH
+    lifetimes. Invisible while everything sat at its default. The moment a
+    device file could change one it became a silent lie: the lock file would
+    record the value, the run id would move because the id hashes the inputs,
+    and the solver would compute the old answer. A test that only checked "the
+    id changed" would have passed against exactly that bug.
+    """
+    base = json.loads(run("--format", "json", "run", "solve", PN1D, "--bias",
+                          "0.3", "--output", str(tmp_path)).stdout)[0]
+    slow = json.loads(run("--format", "json", "run", "solve", PN1D, "--bias",
+                          "0.3", "--device", _spec(tmp_path, "mu_n = 675.0\n"),
+                          "--output", str(tmp_path)).stdout)[0]
+
+    assert slow["run_id"] != base["run_id"]
+    assert slow["current_a_cm2"] != base["current_a_cm2"], \
+        "the device was recorded but not used"
+    # Halving the electron mobility halves the ELECTRON half of the current,
+    # so the total falls by less than half. A total that halved exactly would
+    # mean the hole current moved too, which no mobility change should do.
+    ratio = slow["current_a_cm2"] / base["current_a_cm2"]
+    assert 0.5 < ratio < 1.0
+
+
+def test_the_override_is_what_lands_in_the_lock_file(tmp_path):
+    import tomllib
+
+    record = json.loads(run("--format", "json", "run", "solve", PN2D, "--bias",
+                            "0.3", "--device",
+                            _spec(tmp_path, "Na = 5e16\nny = 6\n"),
+                            "--output", str(tmp_path)).stdout)[0]
+    lock = tomllib.loads((tmp_path / record["run_id"] / "input.lock.toml")
+                         .read_text(encoding="utf-8"))
+    assert lock["Na"] == 5e16 and lock["ny"] == 6
+    assert lock["Nd"] == 1e16, "an unmentioned field keeps its default"
+    assert record["grid_points"] == 875, "the mesh actually changed"
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Nq = 1e16\n", "not part of this capability's device"),
+    ("ny = 4.5\n", "whole number"),
+    ("Na = true\n", "not a boolean"),
+    ("[doping]\nNa = 1e16\n", "flat set of scalars"),
+    ("len_p = -1e-4\n", "cannot be built"),
+    ("gamma = 0.5\n", "cannot be built"),
+])
+def test_a_device_that_cannot_apply_is_refused_by_name(tmp_path, text, expected):
+    """Every one of these exits 2 and writes nothing.
+
+    A misspelt key is the dangerous case: dropped in silence, the run looks
+    like it honoured a setting it never saw. It is named instead.
+    """
+    out_dir = tmp_path / "runs"
+    proc = run("run", "solve", PN2D, "--bias", "0.3",
+               "--device", _spec(tmp_path, text), "--output", str(out_dir))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert expected in proc.stderr
+    assert not out_dir.exists(), "a refused run must leave nothing behind"
+
+
+def test_json_and_toml_describe_the_same_device(tmp_path):
+    """Two spellings of one device must land in the SAME directory.
+
+    The problem id hashes the resolved inputs, so if the file format leaked
+    into it — a float parsed differently, a key ordered differently — the same
+    device written two ways would be two problems. Asserted by running both
+    and comparing, rather than against a hardcoded prefix.
+    """
+    ids = []
+    for name, text in (("device.json", '{"Na": 5e16, "ny": 6}'),
+                       ("device.toml", "Na = 5e16\nny = 6\n")):
+        record = json.loads(run("--format", "json", "run", "solve", PN2D,
+                                "--bias", "0.3", "--device",
+                                _spec(tmp_path, text, name),
+                                "--output", str(tmp_path)).stdout)[0]
+        assert record["grid_points"] == 875
+        ids.append(record["run_id"])
+    assert ids[0] == ids[1]
+
+
+def test_an_unreadable_device_file_is_input_not_internal(tmp_path):
+    proc = run("run", "solve", PN2D, "--bias", "0.3",
+               "--device", str(tmp_path / "absent.toml"),
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+
+    proc = run("run", "solve", PN2D, "--bias", "0.3",
+               "--device", _spec(tmp_path, "Na = 1e16", "device.yaml"),
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert ".toml or .json" in proc.stderr
+
+
+# --- run sweep: candidates, under ONE contract ----------------------------
+
+def sweep(*args, capability=PN2D):
+    return run("--format", "json", "run", "sweep", capability, *args)
+
+
+def test_a_sweep_writes_an_ordinary_run_per_point(tmp_path):
+    """There is no such thing as a sweep-flavoured result.
+
+    Each row is a normal artifact written through the same path `run solve`
+    uses, so it can be reopened with `run show` and compared with `compare
+    runs`. A sweep that produced its own private record format would be a
+    second source of truth for what a result is.
+    """
+    proc = sweep("--vary", "bias_v=0.2,0.3,0.4", "--output", str(tmp_path),
+                 capability=PN1D)
+    assert proc.returncode == cliout.EXIT_OK, proc.stderr
+    rows = json.loads(proc.stdout)
+    assert len(rows) == 3
+    assert [r["bias_v"] for r in rows] == [0.2, 0.3, 0.4]
+    assert all(r["status"] == "converged" for r in rows)
+
+    for row in rows:
+        shown = run("--format", "json", "run", "show", row["run_id"],
+                    "--output", str(tmp_path))
+        assert shown.returncode == cliout.EXIT_OK
+        assert json.loads(shown.stdout)[0]["capability"] == PN1D
+
+
+def test_the_solver_contract_is_identical_on_every_row(tmp_path):
+    """The property that makes a column readable downward.
+
+    Without it the table is a ranking across a changed contract — the exact
+    comparison `compare runs` exits 2 rather than perform.
+    """
+    rows = json.loads(sweep("--vary", "bias_v=0.2,0.3", "--vary",
+                            "Na=1e16,5e16", "--output",
+                            str(tmp_path)).stdout)
+    contracts = set()
+    for row in rows:
+        manifest = json.loads(
+            (tmp_path / row["run_id"] / "manifest.json").read_text())
+        contracts.add(json.dumps(manifest["solver"], sort_keys=True))
+    assert len(contracts) == 1, "the rows were not solved under one contract"
+
+
+def test_the_grid_is_the_product_of_its_axes(tmp_path):
+    rows = json.loads(sweep("--vary", "Na=1e15,1e16,1e17", "--vary", "ny=4,8",
+                            "--output", str(tmp_path)).stdout)
+    assert len(rows) == 6
+    assert {(r["Na"], r["ny"]) for r in rows} == \
+        {(a, n) for a in (1e15, 1e16, 1e17) for n in (4, 8)}
+    assert {r["run_id"] for r in rows} == set(r["run_id"] for r in rows)
+    assert len({r["run_id"] for r in rows}) == 6, "two points shared a run"
+
+
+def test_refining_the_unused_direction_barely_moves_the_answer(tmp_path):
+    """A sweep worth having says something, and this one does.
+
+    Nothing in this device varies along y, so doubling ny must change the
+    current by far less than changing the doping does. That is a real physical
+    reading taken FROM the table, which is what the command is for — and it
+    would fail if ny were silently ignored, which is the failure a table of
+    identical numbers hides best.
+    """
+    rows = json.loads(sweep("--vary", "ny=4,8", "--output",
+                            str(tmp_path)).stdout)
+    coarse, fine = (r["current_a_cm2"] for r in
+                    sorted(rows, key=lambda r: r["ny"]))
+    assert abs(fine / coarse - 1.0) < 1e-4          # mesh-converged in y
+    assert fine != coarse, "ny had no effect at all; is it reaching the mesh?"
+
+
+@pytest.mark.parametrize("axis", ["tol", "max_iter", "method"])
+def test_varying_the_solver_contract_is_refused(tmp_path, axis):
+    """Refusing is the feature, and it is the same rule `compare runs`
+    enforces — seen from the other side. There it refuses because it cannot
+    know the contract held; here the contract is held by construction."""
+    proc = run("run", "sweep", PN2D, "--vary", f"{axis}=1,2",
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "solver contract is fixed" in proc.stderr
+
+
+@pytest.mark.parametrize("vary,expected", [
+    ("Nq=1,2", "not part of this capability's device"),
+    ("Na=1e16", "at least two values"),
+    ("Na=1e16,big", "is not a number"),
+    ("Na=1e16,1e16", "appears twice"),
+    ("Na", "expected name=value"),
+])
+def test_a_sweep_that_cannot_be_read_is_refused(tmp_path, vary, expected):
+    out_dir = tmp_path / "runs"
+    proc = run("run", "sweep", PN2D, "--vary", vary, "--output", str(out_dir))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert expected in proc.stderr
+    assert not out_dir.exists()
+
+
+def test_the_same_axis_twice_is_refused(tmp_path):
+    """Two --vary flags for one name would silently drop the first list."""
+    proc = run("run", "sweep", PN2D, "--vary", "Na=1e16,2e16",
+               "--vary", "Na=3e16,4e16", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "given twice" in proc.stderr
+
+
+def test_a_bad_point_is_named_and_the_rest_still_run(tmp_path):
+    """A table with a named gap says more than no table at all.
+
+    gamma < 1 cannot build a mesh. The sweep must not abort on it: the other
+    points are real results, and aborting would throw them away.
+    """
+    proc = run("--format", "json", "run", "sweep", PN2D,
+               "--vary", "gamma=0.5,1.06", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_NO_CONVERGENCE
+    rows = {r["gamma"]: r for r in json.loads(proc.stdout)}
+    assert rows[0.5]["status"] == "invalid-device"
+    assert rows[0.5]["run_id"] == "", "a refused point must not claim an artifact"
+    assert rows[1.06]["status"] == "converged"
+    assert (tmp_path / rows[1.06]["run_id"]).is_dir()
+
+
+def test_a_sweep_refuses_a_blocked_capability_before_doing_any_work(tmp_path):
+    """solve and sweep must agree about what is runnable."""
+    proc = run("run", "sweep", "semiconductor.mosfet.drift-diffusion.2d.steady",
+               "--vary", "Na=1e16,2e16", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_UNAVAILABLE
+    assert not list(tmp_path.iterdir())
+
+
+def test_a_sweep_point_is_comparable_with_its_neighbour(tmp_path):
+    """The pay-off: rows of one sweep pass the comparability contract on
+    everything except the axis that was deliberately varied."""
+    rows = json.loads(sweep("--vary", "Na=1e16,5e16", "--output",
+                            str(tmp_path)).stdout)
+    proc = run("compare", "runs", rows[0]["run_id"], rows[1]["run_id"],
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "different inputs" in proc.stderr        # only the inputs differ
+    assert "different solver" not in proc.stderr
+    assert "different build" not in proc.stderr
