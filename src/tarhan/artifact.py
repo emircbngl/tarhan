@@ -112,11 +112,22 @@ def source_id() -> str:
     the exact collision the build id was added to prevent, reported in review
     against the first version of this function.
 
-    A git commit was the obvious fix and is recorded below, but it is not the
-    thing to hash: it is absent from an installed wheel and it is a LIE about a
-    dirty working tree, which is the normal state of the machine where a run is
-    actually produced. The source bytes are neither. They are what the
+    A git commit was the obvious fix and is recorded separately, but it is not
+    the thing to hash: it is absent from an installed wheel and it is a LIE
+    about a dirty working tree, which is the normal state of the machine where
+    a run is actually produced. The source bytes are neither. They are what the
     interpreter executed, in both a checkout and an install.
+
+    **Scope, chosen deliberately: the whole package is the build.** Every
+    ``.py`` under the package counts, including modules no solve imports — so a
+    prototype sitting in the source tree moves the build id of a run it never
+    touched. That is broader than "the code that ran", and it is the intended
+    reading: which modules a solve imports is not decidable without running it,
+    it changes with the inputs, and a narrower hash would quietly call two
+    different working trees the same build. The cost is real and worth naming —
+    an untracked scratch file makes a local build id differ from CI's for the
+    same commit — but it errs toward calling two builds different, which is the
+    safe direction for something whose whole job is to keep results apart.
     """
     package = Path(__file__).resolve().parent
     digest = hashlib.sha256()
@@ -179,16 +190,35 @@ def environment():
     return versions
 
 
+#: Recorded in the manifest but excluded from the build hash. See :func:`code_id`.
+UNHASHED_ENVIRONMENT = ("git",)
+
+
 def code_id(env=None) -> str:
     """A short hash of the code and libraries that produced a result.
 
     Derived from :func:`environment`, whose ``source`` term is a hash of the
     package's own bytes — so two different commits under one dev version get
     two different build ids, which is what stops them sharing a directory.
+
+    ``git`` is recorded but NOT hashed, and the exclusion has to be explicit
+    rather than assumed: this function used to hash the whole ``env`` mapping
+    while the documentation next to it said the commit was deliberately kept
+    out, which is a documentation defect, not a wording preference — the two
+    disagreed and the prose was the false one. Reported in review.
+
+    It is excluded because it is not identifying information. The same bytes
+    reached from two branches, or from a checkout and an unpacked sdist, are
+    one build; hashing the commit would split them. Worse, ``dirty`` is a
+    boolean over the WHOLE tree, so editing a test or the README would move the
+    build id of a solver whose source had not changed at all. ``source`` is the
+    term that answers "what code ran"; ``git`` answers "where did it come
+    from", which is for people reading the manifest.
     """
     env = environment() if env is None else env
+    hashed = {k: v for k, v in env.items() if k not in UNHASHED_ENVIRONMENT}
     return hashlib.sha256(
-        _canonical(dict(env)).encode("utf-8")).hexdigest()[:CODE_ID_LENGTH]
+        _canonical(hashed).encode("utf-8")).hexdigest()[:CODE_ID_LENGTH]
 
 
 def checksums(path) -> Dict[str, str]:

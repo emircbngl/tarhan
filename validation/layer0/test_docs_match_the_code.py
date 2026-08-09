@@ -181,3 +181,60 @@ def test_blocked_stages_say_why_in_the_same_document():
         assert re.search(rf"###[^\n]*{re.escape(stage)}[^\n]*blocked", text,
                          re.IGNORECASE), (
             f"stage {stage} is marked BLOCKED but no section explains why")
+
+
+# --- the citation file describes the ARCHIVE, not the working tree ---------
+
+def _cff_field(name):
+    for line in (REPO / "CITATION.cff").read_text(encoding="utf-8").splitlines():
+        if line.startswith(f"{name}:"):
+            return line.split(":", 1)[1].strip()
+    raise AssertionError(f"CITATION.cff has no {name}")
+
+
+def test_the_citation_names_the_latest_released_version_not_the_dev_one():
+    """Two ways to get this wrong, and they pull in opposite directions.
+
+    Bumping it to match ``__version__`` would point a citation at 0.3.0.dev0,
+    for which no Zenodo archive exists — citing something unciteable. Leaving
+    it behind at release time is the older, likelier failure: the file then
+    describes an archive that is no longer the latest.
+
+    The truth it must track is neither the working tree nor a hand-kept note:
+    it is the newest released entry in the CHANGELOG, which is the same thing
+    the tag and the version DOI were minted from.
+    """
+    import re
+
+    changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    releases = re.findall(r"^## \[(\d+\.\d+\.\d+)\] — (\d{4}-\d{2}-\d{2})",
+                          changelog, re.M)
+    assert releases, "no released version found in CHANGELOG.md"
+    version, date = releases[0]
+
+    assert _cff_field("version") == version, (
+        f"CITATION.cff says version {_cff_field('version')} but the newest "
+        f"CHANGELOG release is {version}")
+    assert _cff_field("date-released") == date
+
+
+def test_the_citation_admits_it_is_behind_main():
+    """A reader who spots the gap must find it explained, not have to guess."""
+    from tarhan import __version__
+
+    header = (REPO / "CITATION.cff").read_text(encoding="utf-8")
+    if _cff_field("version") == __version__:
+        return                      # at a release moment there is no gap
+    assert __version__ in header, (
+        "CITATION.cff is behind the working tree and does not say so; a reader "
+        "cannot tell a deliberate lag from a forgotten bump")
+
+
+def test_every_version_doi_is_described_with_its_own_licence():
+    """v0.1.0 was archived under AGPL and v0.2.0 under Apache-2.0. The top-level
+    `license:` describes only the current one, so anyone citing an older DOI has
+    to be told which licence that frozen archive carries."""
+    text = (REPO / "CITATION.cff").read_text(encoding="utf-8")
+    for version, licence in (("v0.1.0", "AGPL-3.0-or-later"),
+                             ("v0.2.0", "Apache-2.0")):
+        assert f"Version DOI — {version} ({licence})" in text

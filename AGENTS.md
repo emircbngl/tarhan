@@ -104,9 +104,14 @@ problem, landing elsewhere. The **build id** hashes what produced it: the
 tarhan/python/numpy/scipy versions and a sha256 of the package's own source
 bytes. The source hash is the load-bearing part — every commit between two
 releases carries one dev version, so a build id derived from version strings
-alone lets two different commits share a directory. The git commit is recorded
-alongside, with a `dirty` flag, but is not hashed: a wheel has none, and a
-checkout with edits reports one that no longer describes its files. The
+alone lets two different commits share a directory. Every `.py` under the
+package counts, including modules no solve imports — the whole package is
+treated as the build, deliberately, because which modules a solve imports is
+not decidable without running it. The git commit is recorded alongside, with a
+`dirty` flag, and is **excluded from the hash**: the same bytes reached from
+two branches are one build, and `dirty` is a boolean over the whole tree, so
+hashing it would move a solver's build id when a README changed. `git` answers
+where the code came from; `source` answers what ran. The
 timestamp is recorded but not hashed; include the clock and every run would be
 unique by construction, which is the same as having no id at all.
 

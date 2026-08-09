@@ -261,8 +261,8 @@ def test_the_source_hash_is_over_the_bytes_that_were_imported():
     assert artifact.environment()["source"] == digest
 
 
-def test_the_git_commit_is_recorded_but_is_not_the_build_id(monkeypatch):
-    """Recorded for people; hashed only incidentally.
+def test_the_git_commit_is_recorded_in_the_manifest(monkeypatch):
+    """Recorded for people: it is what turns a build id back into a diff.
 
     A checkout with edits reports a commit that no longer describes its files,
     which is why `dirty` is carried alongside it rather than left implied.
@@ -274,6 +274,44 @@ def test_the_git_commit_is_recorded_but_is_not_the_build_id(monkeypatch):
     assert set(commit) == {"commit", "dirty"}
     assert len(commit["commit"]) == 40
     assert isinstance(commit["dirty"], bool)
+
+
+@pytest.mark.parametrize("git_value", [
+    {"commit": "b" * 40, "dirty": False},     # a different commit
+    {"commit": "a" * 40, "dirty": True},      # the same commit, edited tree
+    None,                                     # no checkout at all: a wheel
+])
+def test_only_the_git_term_changing_does_not_move_the_build_id(git_value):
+    """The exact contradiction reported in review.
+
+    ``code_id`` hashed the whole environment mapping, ``git`` included, while
+    the documentation beside it said the commit was deliberately kept out. The
+    two disagreed and the prose was the false one, so this asserts the code
+    rather than trusting the sentence.
+
+    Why the exclusion is right and not merely documented: the same bytes
+    reached from two branches are one build, and ``dirty`` is a boolean over
+    the WHOLE tree — editing a test or the README would otherwise move the
+    build id of a solver whose source had not changed at all.
+    """
+    base = {"tarhan": "0.3.0.dev0", "python": "3.13.5", "numpy": "2.5.0",
+            "scipy": "1.18.0", "source": "c" * 64,
+            "git": {"commit": "a" * 40, "dirty": False}}
+    moved = dict(base)
+    if git_value is None:
+        moved.pop("git")
+    else:
+        moved["git"] = git_value
+
+    assert base != moved, "the fixture must actually differ"
+    assert code_id(base) == code_id(moved)
+
+
+def test_the_source_term_is_what_moves_the_build_id():
+    """The other half: excluding git must not have excluded everything."""
+    base = {"tarhan": "0.3.0.dev0", "python": "3.13.5", "source": "c" * 64}
+    assert code_id(base) != code_id(dict(base, source="d" * 64))
+    assert code_id(base) != code_id(dict(base, numpy="2.5.0"))
 
 
 # --- a directory written before checksums existed --------------------------

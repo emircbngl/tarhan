@@ -1,9 +1,17 @@
 # Yasal isim eklendi (2026-07-31). Zenodo DOI eklendi (2026-08-02).
 # (kuruluş ilkesi #16: atıflanabilirlik altyapıdır; concept-DOI vs version-DOI ayrımına dikkat)
 #
-# Aşağıdaki metadata 0.2.0 sürümünü tarif eder. Sürüm 0.y.z'de kalıyor: proje
-# kendini pre-alpha ilan ettiği sürece SemVer'in "API kırılabilir" aralığı doğru
-# olan iddiadır. Kırıcı değişiklikler CHANGELOG'da açıkça listelidir.
+# BU DOSYA YAYIMLANMIŞ ARŞİVİ TARİF EDER, main'i DEĞİL. Aşağıdaki
+# ``version: 0.2.0`` ve ``date-released: 2026-08-07`` en son YAYIMLANAN sürümü
+# — Zenodo'da arşivi olan tek şeyi — gösterir; main bunun ilerisinde ve şu an
+# 0.3.0.dev0. Bu bir tutarsızlık değil, dosyanın işi: 0.3.0.dev0 için atıflanacak
+# bir arşiv YOKTUR, dolayısıyla buraya yazılması okuyucuya var olmayan bir şeyi
+# atıflatmak olurdu. Bu iki alan yalnızca RELEASE anında, yeni version DOI ile
+# birlikte hareket eder — main'in sürümü her değiştiğinde değil.
+#
+# Sürüm 0.y.z'de kalıyor: proje kendini pre-alpha ilan ettiği sürece SemVer'in
+# "API kırılabilir" aralığı doğru olan iddiadır. Kırıcı değişiklikler
+# CHANGELOG'da açıkça listelidir.
 #
 # identifiers listesindeki version DOI'ler sürüme özeldir ve her biri KENDİ
 # lisansıyla dondurulmuştur: v0.1.0 arşivi AGPL-3.0-or-later, v0.2.0 arşivi
