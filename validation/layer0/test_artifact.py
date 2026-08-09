@@ -25,6 +25,7 @@ import numpy as np
 import pytest
 
 import tarhan
+from tarhan import artifact
 
 from tarhan.artifact import (FIELDS, RUN_FILES, ArtifactError, code_id,
                              dumps_toml, read_run, run_id, write_run)
@@ -230,3 +231,114 @@ def test_field_data_is_optional_and_written_when_present(tmp_path):
     assert (withfields / FIELDS).exists()
     with np.load(withfields / FIELDS) as data:
         assert data["psi"].shape == (8,)
+
+
+# --- the build id must separate two builds, not two version strings --------
+
+def test_the_build_id_moves_when_the_source_moves(tmp_path, monkeypatch):
+    """The collision the first build id did not close.
+
+    It hashed tarhan/python/numpy/scipy versions. Every commit between two
+    releases carries the same ``0.3.0.dev0``, so two genuinely different builds
+    produced the same build id and wrote to one directory — reported in review.
+    Simulated here by changing the source hash, which is what a commit does.
+    """
+    before = code_id()
+    monkeypatch.setattr(artifact, "source_id", lambda: "0" * 64)
+    after = code_id()
+    assert before != after
+
+
+def test_the_source_hash_is_over_the_bytes_that_were_imported():
+    """Not the version string, and not the git commit.
+
+    A wheel has no commit and a dirty checkout has one that lies about its own
+    files; the source bytes are what the interpreter actually ran.
+    """
+    digest = artifact.source_id()
+    assert len(digest) == 64 and int(digest, 16) >= 0
+    assert artifact.source_id() == digest, "the same tree must hash the same"
+    assert artifact.environment()["source"] == digest
+
+
+def test_the_git_commit_is_recorded_but_is_not_the_build_id(monkeypatch):
+    """Recorded for people; hashed only incidentally.
+
+    A checkout with edits reports a commit that no longer describes its files,
+    which is why `dirty` is carried alongside it rather than left implied.
+    """
+    commit = artifact.git_commit()
+    if commit is None:                        # an installed wheel, not a checkout
+        assert "git" not in artifact.environment()
+        return
+    assert set(commit) == {"commit", "dirty"}
+    assert len(commit["commit"]) == 40
+    assert isinstance(commit["dirty"], bool)
+
+
+# --- a directory written before checksums existed --------------------------
+
+def test_a_legacy_directory_is_labelled_rather_than_silently_trusted(tmp_path):
+    """The silence reported in review.
+
+    A v1 manifest has no `files` map. Iterating it checks nothing and returns,
+    so the run came back looking exactly as verified as one whose checksums had
+    just been confirmed. It is now labelled, and the label is what `run show`
+    and `compare runs` print.
+    """
+    path = _write(tmp_path)
+    manifest_path = path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    del manifest["files"]
+    del manifest["schema_version"]
+    manifest_path.write_text(json.dumps(manifest))
+
+    loaded = read_run(path)                   # still readable — not a refusal
+    assert loaded["integrity"] == "unverified-legacy"
+    assert loaded["schema_version"] == 1
+
+
+def test_a_current_directory_reports_itself_verified(tmp_path):
+    loaded = read_run(_write(tmp_path))
+    assert loaded["integrity"] == "verified"
+    assert loaded["schema_version"] == artifact.SCHEMA_VERSION
+
+
+def test_an_edited_legacy_run_is_NOT_caught_and_says_so(tmp_path):
+    """The honest limit, asserted so nobody has to discover it.
+
+    There are no checksums to check. The label is the whole protection.
+    """
+    path = _write(tmp_path)
+    manifest_path = path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.pop("files")
+    manifest.pop("schema_version")
+    manifest_path.write_text(json.dumps(manifest))
+    (path / "metrics.json").write_text('{"current_a_cm2": 999.0}\n')
+
+    loaded = read_run(path)                   # no error — nothing to check with
+    assert loaded["metrics"]["current_a_cm2"] == 999.0
+    assert loaded["integrity"] == "unverified-legacy"
+
+
+def test_the_checksums_do_not_survive_an_edited_manifest(tmp_path):
+    """The scope of the guarantee, pinned as a test rather than a claim.
+
+    The manifest is unsigned. Someone who changes a result AND the digest
+    beside it passes — this is accidental-corruption detection, not
+    tamper-proofing, and the module docstring says so. Asserted here so the
+    stronger claim cannot quietly creep back into the documentation.
+    """
+    path = _write(tmp_path)
+    metrics = path / "metrics.json"
+    metrics.write_text('{"current_a_cm2": 999.0, "iterations": 12}\n')
+    manifest_path = path / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"]["metrics.json"] = hashlib.sha256(
+        metrics.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest))
+
+    loaded = read_run(path)                   # passes, and that is the point
+    assert loaded["metrics"]["current_a_cm2"] == 999.0
+    assert loaded["integrity"] == "verified"

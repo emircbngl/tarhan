@@ -313,6 +313,11 @@ def _run_show(out: cliout.Output, args) -> int:
         return cliout.EXIT_INPUT
 
     manifest = run["manifest"]
+    if run.get("integrity") == "unverified-legacy":
+        # A directory written before checksums existed. Reading it in silence
+        # made it indistinguishable from a verified one — reported in review.
+        out.note("schema v%s: written before checksums existed, so nothing has "
+                 "verified this directory's contents" % run.get("schema_version"))
     if out.fmt == "table":
         lines = [f"{k + ':':<20}{v}" for k, v in manifest.items()
                  if not isinstance(v, dict)]
@@ -334,13 +339,24 @@ _CONTRACT = (
     ("capability", lambda r: r["manifest"]["capability"]),
     ("solver", lambda r: r["manifest"]["solver"]),
     ("inputs", lambda r: r["inputs"]),
+    # The code is a term of the contract too, and it was missing — reported in
+    # review. A difference here is precisely the regression case ("did my
+    # change move this number?"), so it is not fatal the way a changed solver
+    # is; it just must not be silent, because "same inputs, different answer"
+    # is exactly how a code change gets read as a physical effect.
+    ("build", lambda r: r["manifest"].get("code_id", "")),
 )
 
+#: The one term `--allow-build-diff` waives. The others are not waivable: no
+#: flag makes two different solver tolerances comparable.
+_WAIVABLE = "build"
 
-def _incomparable(left, right):
+
+def _incomparable(left, right, allow_build_diff: bool = False):
     """Which contract terms differ. Empty means the two can be compared."""
     return [label for label, get_term in _CONTRACT
-            if get_term(left) != get_term(right)]
+            if not (allow_build_diff and label == _WAIVABLE)
+            and get_term(left) != get_term(right)]
 
 
 def _compare_runs(out: cliout.Output, args) -> int:
@@ -361,10 +377,20 @@ def _compare_runs(out: cliout.Output, args) -> int:
             return cliout.EXIT_INPUT
 
     left, right = runs
-    differing = _incomparable(left, right)
+    for run in runs:
+        if run.get("integrity") == "unverified-legacy":
+            out.note(f"{run['path'].name}: written before checksums existed, so "
+                     "nothing here has verified its contents")
+
+    differing = _incomparable(left, right, args.allow_build_diff)
     if differing:
         out.error("not comparable: " + ", ".join(f"different {d}"
                                                  for d in differing))
+        if _WAIVABLE in differing:
+            out.note(f"the two runs were produced by different builds "
+                     f"({left['manifest'].get('code_id', '?')} and "
+                     f"{right['manifest'].get('code_id', '?')}). If comparing "
+                     "them IS the question, say so with --allow-build-diff")
         out.note("§5.3 of the roadmap: a ranking across a changed contract is "
                  "not a weaker result, it is a different question")
         if out.fmt != "table":
@@ -379,8 +405,15 @@ def _compare_runs(out: cliout.Output, args) -> int:
         delta = (b - a) if isinstance(a, (int, float)) else None
         rows.append({"metric": key, "left": a, "right": b, "delta": delta})
     out.emit(rows, ("metric", "left", "right", "delta"))
-    out.note(f"comparable: same capability, solver contract and inputs "
-             f"({len(keys)} shared metrics)")
+    if args.allow_build_diff and left["manifest"].get("code_id") != \
+            right["manifest"].get("code_id"):
+        out.note(f"BUILDS DIFFER ({left['manifest'].get('code_id', '?')} vs "
+                 f"{right['manifest'].get('code_id', '?')}) — waived by "
+                 "--allow-build-diff. Every delta below may be the code "
+                 "changing rather than the physics")
+    else:
+        out.note(f"comparable: same capability, solver contract, inputs and "
+                 f"build ({len(keys)} shared metrics)")
     return cliout.EXIT_OK
 
 
@@ -655,6 +688,12 @@ def build_parser():
     p_cruns.add_argument("left", metavar="<run-id>")
     p_cruns.add_argument("right", metavar="<run-id>")
     p_cruns.add_argument("--output", default="runs")
+    p_cruns.add_argument("--allow-build-diff", action="store_true",
+                         help="compare two runs produced by different builds. "
+                              "Refused by default: with the same inputs, a "
+                              "delta from a code change looks exactly like a "
+                              "physical effect. Every metric is flagged when "
+                              "this is used")
 
     p_demo = sub.add_parser("demo", help="zero-config reproduction demos")
     p_demo.add_argument("--case", choices=("cottrell", "diode", "forge"),

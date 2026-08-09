@@ -241,3 +241,81 @@ def test_json_output_stays_parseable_through_a_solve(tmp_path):
     json.loads(proc.stdout)
     assert "artifact written" in proc.stderr
     assert "artifact written" not in proc.stdout
+
+
+# --- the build is a term of the comparability contract ---------------------
+
+def _restamp_build(source_dir, build):
+    """Copy a run and relabel the build that produced it.
+
+    The honest way to make two builds would be to check out two commits and
+    solve twice, which costs a checkout per assertion. What `compare` reads is
+    the recorded build id, so that is what is varied — and the manifest is not
+    covered by its own checksums, so nothing else has to be forged for the
+    directory to stay valid.
+    """
+    import json as _json
+    import shutil
+
+    target = source_dir.parent / f"{source_dir.name.split('-')[0]}-{build}"
+    shutil.copytree(source_dir, target, dirs_exist_ok=True)
+    manifest_path = target / "manifest.json"
+    manifest = _json.loads(manifest_path.read_text())
+    manifest["code_id"] = build
+    manifest["run_id"] = target.name
+    manifest_path.write_text(_json.dumps(manifest, indent=2) + "\n")
+    return target.name
+
+
+def test_two_builds_are_refused_by_default(tmp_path):
+    """Reported in review: the contract covered capability, inputs and solver,
+    so two results from DIFFERENT CODE compared silently. With the inputs held
+    fixed, a delta from a code change is indistinguishable from a physical
+    effect — which is the single most misreadable output this command has."""
+    left = solve(tmp_path)
+    right = _restamp_build(tmp_path / left, "deadbeef")
+
+    proc = run("compare", "runs", left, right, "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "different build" in proc.stderr
+    assert "--allow-build-diff" in proc.stderr
+
+
+def test_the_waiver_compares_and_flags_every_delta(tmp_path):
+    """Comparing across builds IS a real question — "did my change move this
+    number?" — so the flag exists. What it must never do is produce output that
+    reads like an ordinary comparison."""
+    left = solve(tmp_path)
+    right = _restamp_build(tmp_path / left, "deadbeef")
+
+    proc = run("compare", "runs", left, right, "--allow-build-diff",
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    assert "BUILDS DIFFER" in proc.stderr
+    assert "may be the code changing rather than the physics" in proc.stderr
+
+
+def test_the_waiver_does_not_excuse_any_other_term(tmp_path):
+    """One waiver, one term. No flag makes two solver tolerances comparable."""
+    left = solve(tmp_path)
+    right = solve(tmp_path, "--bias", "0.35")
+    proc = run("compare", "runs", left, right, "--allow-build-diff",
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "different inputs" in proc.stderr
+
+
+def test_a_legacy_run_says_it_was_never_verified(tmp_path):
+    """`run show` on a directory written before checksums existed."""
+    import json as _json
+
+    run_id = solve(tmp_path)
+    manifest_path = tmp_path / run_id / "manifest.json"
+    manifest = _json.loads(manifest_path.read_text())
+    manifest.pop("files")
+    manifest.pop("schema_version")
+    manifest_path.write_text(_json.dumps(manifest, indent=2) + "\n")
+
+    proc = run("run", "show", run_id, "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    assert "nothing has verified" in proc.stderr

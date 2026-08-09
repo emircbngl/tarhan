@@ -92,19 +92,39 @@ Two things matter when scripting it:
 tarhan run solve <capability-id> --bias 0.3 --output runs/
 tarhan run show <run-id> --output runs/
 tarhan compare runs <run-a> <run-b> --output runs/
+tarhan compare runs <run-a> <run-b> --allow-build-diff --output runs/
 ```
 
-A run leaves `runs/<run-id>/` behind: `manifest.json`, `input.lock.toml`,
-`provenance.json`, `metrics.json`, `fields.npz`, `stdout.log`, `report.md`. The
-id is a hash of the capability, the resolved inputs and the solver contract, so
-**re-running the same problem overwrites rather than accumulates** — and a
-changed tolerance is a different problem, landing elsewhere. The timestamp is
-recorded but not hashed; include the clock and every run would be unique by
-construction, which is the same as having no id at all.
+A run leaves `runs/<problem-id>-<build-id>/` behind: `manifest.json`,
+`input.lock.toml`, `provenance.json`, `metrics.json`, `fields.npz`,
+`stdout.log`, `report.md`. The **problem id** hashes the capability, the fully
+resolved inputs and the solver contract, so **re-running the same problem
+overwrites rather than accumulates** — and a changed tolerance is a different
+problem, landing elsewhere. The **build id** hashes what produced it: the
+tarhan/python/numpy/scipy versions and a sha256 of the package's own source
+bytes. The source hash is the load-bearing part — every commit between two
+releases carries one dev version, so a build id derived from version strings
+alone lets two different commits share a directory. The git commit is recorded
+alongside, with a `dirty` flag, but is not hashed: a wheel has none, and a
+checkout with edits reports one that no longer describes its files. The
+timestamp is recorded but not hashed; include the clock and every run would be
+unique by construction, which is the same as having no id at all.
 
 `compare runs` refuses rather than ranks when the comparability contract does
 not hold, and exits `2` naming the term that differs. Two solves at different
 tolerances produce two numbers you *can* subtract; the difference means nothing.
+The contract is capability, inputs, solver **and build**. A different build is
+the one waivable term — comparing across code IS a real question — but it needs
+`--allow-build-diff`, and every metric is then flagged, because with the inputs
+held fixed a delta from a code change looks exactly like a physical effect.
+
+**What the checksums are.** `manifest.json` records a sha256 of every other
+file, so a result that changed after the run is caught. That is
+accidental-corruption and casual-edit detection, **not** tamper-proofing: the
+manifest is unsigned, so anyone who edits `metrics.json` and updates the digest
+beside it passes. Directories written before checksums existed (schema v1) are
+read, but `run show` and `compare runs` say plainly that nothing has verified
+their contents.
 
 `tarhan demo` keeps its own older 0/1 contract and is untouched by the above.
 

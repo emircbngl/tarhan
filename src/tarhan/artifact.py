@@ -18,6 +18,18 @@ repeat lands in the same place and a genuine change lands somewhere new. The
 timestamp is recorded but deliberately kept OUT of the hash — include it and
 every run is unique by construction, which makes the property worthless.
 
+**What the checksums are, and what they are NOT.** ``manifest.json`` records a
+sha256 of every other file in the directory, so a result that changed after the
+run is caught rather than trusted. That is **accidental-corruption and
+casual-edit detection**. It is NOT tamper-proofing and must not be described as
+such: the manifest is unsigned, so anyone who edits ``metrics.json`` and then
+updates the digest beside it is not caught, and nothing here would notice. This
+was raised in review and the honest answer is the scope, not a stronger claim —
+resisting a motivated forger needs a signature over the manifest, keys to sign
+with and somewhere to keep them, and none of that exists yet. The `run_id`
+check is a second, independent reading of the same directory, so the two must
+be edited consistently to pass both, but that is a speed bump and not a lock.
+
 **On the TOML.** ``input.lock.toml`` is the roadmap's choice and it is kept, but
 Python's standard library reads TOML and does not write it. Rather than take a
 dependency for one file, this module emits the small subset it actually needs —
@@ -48,6 +60,17 @@ RUN_FILES = (MANIFEST, INPUT_LOCK, PROVENANCE, METRICS, STDOUT_LOG, REPORT)
 
 ID_LENGTH = 12          # 48 bits of sha256; collision is not the failure mode
 CODE_ID_LENGTH = 8      # enough to separate builds, short enough to read
+
+#: Bumped when the manifest gains a field a reader must know about.
+#:
+#: 1 — the original: capability, inputs, solver. No checksums.
+#: 2 — adds ``code_id``, ``environment`` and per-file ``files`` checksums.
+#:
+#: A v1 directory has no checksums, so a v2 reader that simply iterates
+#: ``files`` finds nothing to check and returns it looking exactly like a
+#: verified run. That silence was reported in review. The version is what lets
+#: :func:`read_run` say ``unverified-legacy`` out loud instead.
+SCHEMA_VERSION = 2
 
 
 class ArtifactError(ValueError):
@@ -80,6 +103,56 @@ def run_id(capability: str, inputs: Mapping[str, Any],
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:ID_LENGTH]
 
 
+def source_id() -> str:
+    """sha256 over the package's own Python source, as imported.
+
+    The version string is not the code. Every commit on ``main`` between two
+    releases carries the same ``0.3.0.dev0``, so a build id derived from
+    versions alone lets two genuinely different builds write to one directory —
+    the exact collision the build id was added to prevent, reported in review
+    against the first version of this function.
+
+    A git commit was the obvious fix and is recorded below, but it is not the
+    thing to hash: it is absent from an installed wheel and it is a LIE about a
+    dirty working tree, which is the normal state of the machine where a run is
+    actually produced. The source bytes are neither. They are what the
+    interpreter executed, in both a checkout and an install.
+    """
+    package = Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for item in sorted(package.rglob("*.py")):
+        digest.update(item.relative_to(package).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(item.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def git_commit() -> Optional[Dict[str, Any]]:
+    """The commit the source sits on, when it sits on one at all.
+
+    Recorded for people — it is what turns a build id back into a diff — and
+    deliberately NOT what identifies the build: an installed wheel has no
+    commit, and a checkout with edits reports a commit that no longer describes
+    its own files. ``dirty`` says which case you are looking at.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[2]
+    if not (root / ".git").exists():
+        return None
+    try:
+        run = lambda *a: subprocess.run(a, cwd=root, capture_output=True,
+                                        text=True, timeout=10)
+        head = run("git", "rev-parse", "HEAD")
+        if head.returncode != 0:
+            return None
+        dirty = run("git", "status", "--porcelain", "--", "src")
+        return {"commit": head.stdout.strip(),
+                "dirty": bool(dirty.stdout.strip())}
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def environment():
     """What the result was produced BY, as opposed to what it was produced FROM.
 
@@ -93,17 +166,26 @@ def environment():
 
     from tarhan import __version__
 
-    versions = {"tarhan": __version__, "python": platform.python_version()}
+    versions = {"tarhan": __version__, "python": platform.python_version(),
+                "source": source_id()}
     for name in ("numpy", "scipy"):
         try:
             versions[name] = __import__(name).__version__
         except Exception:                                 # noqa: BLE001
             versions[name] = "absent"
+    commit = git_commit()
+    if commit is not None:
+        versions["git"] = commit
     return versions
 
 
 def code_id(env=None) -> str:
-    """A short hash of the code and libraries that produced a result."""
+    """A short hash of the code and libraries that produced a result.
+
+    Derived from :func:`environment`, whose ``source`` term is a hash of the
+    package's own bytes — so two different commits under one dev version get
+    two different build ids, which is what stops them sharing a directory.
+    """
     env = environment() if env is None else env
     return hashlib.sha256(
         _canonical(dict(env)).encode("utf-8")).hexdigest()[:CODE_ID_LENGTH]
@@ -113,8 +195,12 @@ def checksums(path) -> Dict[str, str]:
     """sha256 of every file in a run directory except the manifest itself.
 
     The manifest cannot contain its own hash, so it is the one file this does
-    not cover; everything it points at is covered, which is what makes an edit
+    not cover; everything it points at is covered, which is what makes a change
     to metrics.json or fields.npz detectable rather than invisible.
+
+    Detectable, not prevented, and not proof of anything against someone who
+    means it — the manifest is unsigned, so a digest edited alongside the file
+    it describes passes. See the module docstring.
     """
     path = Path(path)
     out = {}
@@ -184,6 +270,7 @@ class RunManifest:
     code_id: str = ""                 # what produced it, not what it was made from
     environment: Dict[str, Any] = field(default_factory=dict)
     files: Dict[str, str] = field(default_factory=dict)   # sha256 per file
+    schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -199,6 +286,7 @@ class RunManifest:
             "code_id": self.code_id,
             "environment": self.environment,
             "files": self.files,
+            "schema_version": self.schema_version,
         }
 
 
@@ -269,22 +357,33 @@ def read_run(path) -> Dict[str, Any]:
     # Hashing only the inputs left metrics.json, provenance.json and fields.npz
     # editable without trace — reported in review. Every file the manifest
     # points at is checked against the checksum recorded at write time, and the
-    # check runs BEFORE anything is parsed: a tampered JSON file would
+    # check runs BEFORE anything is parsed: a corrupted JSON file would
     # otherwise surface as a decode error, which says the file is malformed
-    # when what actually happened is that someone changed the result.
-    actual = checksums(path)
-    for name, digest in manifest.get("files", {}).items():
-        if name not in actual:
-            raise ArtifactError(f"{path}: {name} is recorded but missing")
-        if actual[name] != digest:
-            raise ArtifactError(
-                f"{path}: {name} does not match the checksum recorded when the "
-                "run was written; the result has been edited after the fact")
+    # when what actually happened is that its contents changed.
+    schema = manifest.get("schema_version", 1)
+    recorded_files = manifest.get("files") or {}
+    if schema < SCHEMA_VERSION or not recorded_files:
+        # A pre-checksum directory. Iterating an absent `files` map checks
+        # nothing and returns silently, which reads exactly like a verified
+        # run — reported in review. Say what it is instead.
+        integrity = "unverified-legacy"
+    else:
+        integrity = "verified"
+        actual = checksums(path)
+        for name, digest in recorded_files.items():
+            if name not in actual:
+                raise ArtifactError(f"{path}: {name} is recorded but missing")
+            if actual[name] != digest:
+                raise ArtifactError(
+                    f"{path}: {name} does not match the checksum recorded when "
+                    "the run was written; the result has changed since")
 
     inputs = tomllib.loads((path / INPUT_LOCK).read_text(encoding="utf-8"))
     out = {
         "path": path,
         "manifest": manifest,
+        "schema_version": schema,
+        "integrity": integrity,
         "inputs": inputs,
         "provenance": json.loads(
             (path / PROVENANCE).read_text(encoding="utf-8")),
