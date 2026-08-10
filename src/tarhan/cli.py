@@ -690,6 +690,15 @@ def _device_fingerprint(inputs) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
+#: Numbers a run reports ABOUT ITSELF rather than about the physics. They are
+#: not claims that need validating, so they are not counted as uncovered
+#: metrics — but everything else the artifact publishes is.
+_DIAGNOSTIC_METRICS = frozenset({
+    "gummel_iterations", "grid_points", "psi_step", "current_rel_change",
+    "coupled_poisson_residual",
+})
+
+
 def _statuses(cap, inputs, outside, metrics):
     """The four status fields, computed ONCE for solve and sweep alike.
 
@@ -706,7 +715,16 @@ def _statuses(cap, inputs, outside, metrics):
     envelope says nothing about.
     """
     change = metrics.get("current_rel_change")
-    kinds = set(cap.coverage_report(inputs).values())
+    report = dict(cap.coverage_report(inputs))
+    # A metric the artifact PUBLISHES but no coverage record mentions is
+    # `unverified`, and saying so is the only way `unverified` can ever be
+    # reached. A 2D 0.3 V run publishes nine metrics while the registry
+    # covers two, and it was reporting `fully-covered`. Reported in review.
+    for name in metrics:
+        if name in _DIAGNOSTIC_METRICS:
+            continue
+        report.setdefault(name, "unverified")
+    kinds = set(report.values())
     if outside:
         validation_status = "outside-validated-range"
     elif not kinds or kinds == {"unverified"}:
@@ -719,6 +737,8 @@ def _statuses(cap, inputs, outside, metrics):
     solver_status = "potential-step-converged"
     return {"solver_status": solver_status,
             "validation_status": validation_status,
+            "metric_coverage": "; ".join(f"{m}={k}"
+                                         for m, k in sorted(report.items())),
             "current_convergence": ("unassessed" if change is None
                                     else f"measured:{change:.3e}"),
             "run_status": (solver_status if not outside
@@ -726,7 +746,8 @@ def _statuses(cap, inputs, outside, metrics):
 
 
 def _provenance(cap, runner, *, scenario, outside, inputs, solver_status,
-                validation_status, current_convergence="unassessed",
+                validation_status, metric_coverage, 
+                current_convergence="unassessed",
                 candidate_id=None, device_file=None):
     """The evidence fields EVERY run records, wherever it was launched from.
 
@@ -760,9 +781,7 @@ def _provenance(cap, runner, *, scenario, outside, inputs, solver_status,
             # Per metric, because they are not covered at the same biases:
             # this device's potential is checked at 0.0 and 0.30 V while its
             # current is checked at 0.20, 0.30 and 0.40 V.
-            "metric_coverage": "; ".join(
-                f"{metric}={kind}" for metric, kind
-                in sorted(cap.coverage_report(inputs).items())),
+            "metric_coverage": metric_coverage,
             "device_fingerprint": _device_fingerprint(inputs),
             "scenario": scenario}
 
@@ -927,7 +946,10 @@ def _run_solve(out: cliout.Output, args) -> int:
             metrics, fields = runner.solve({**inputs, **solver},
                                            on_iteration=report)
             forge.finish(f"{metrics['gummel_iterations']} iterations")
-            forge.converged(f"current {metrics['current_a_cm2']:.4e} A/cm^2")
+            # "converged" on the terminal was the same overclaim the
+            # artifact field had: only the potential step is tested.
+            forge.finish(f"potential step settled; current "
+                         f"{metrics['current_a_cm2']:.4e} A/cm^2")
     except ValueError as exc:
         # A device that cannot exist: a negative length, a shrinking mesh step,
         # a contact with no nodes. The dataclasses validate the physics and
@@ -956,9 +978,9 @@ def _run_solve(out: cliout.Output, args) -> int:
     # `solver_status` is deliberately still "the potential settled", because
     # that is the only convergence claim currently backed by a defensible
     # threshold. The terminal current's per-iteration change is MEASURED and
-    # recorded beside it (see pn2d.CURRENT_TOL for what is and is not
-    # established); turning it into a verdict needs a scale nobody has pinned
-    # down yet, and asserting one would be the failure this keeps finding.
+    # recorded beside it. Turning it into a verdict needs a scale nobody has
+    # pinned down yet — see test_pn1d_grid_robustness.py for what IS
+    # established — and asserting one would be the failure this keeps finding.
     statuses = _statuses(cap, inputs, outside, metrics)
     solver_status = statuses["solver_status"]
     validation_status = statuses["validation_status"]
@@ -978,6 +1000,7 @@ def _run_solve(out: cliout.Output, args) -> int:
             outside=outside, inputs=inputs, solver_status=solver_status,
             validation_status=validation_status,
             current_convergence=current_convergence,
+            metric_coverage=statuses["metric_coverage"],
             candidate_id=args.candidate_id,
             device_file=Path(args.device).name if args.device else None),
         status=run_status, command=_recorded_command(),
@@ -1179,6 +1202,7 @@ def _run_sweep(out: cliout.Output, args) -> int:
                     solver_status=point_statuses["solver_status"],
                     validation_status=point_statuses["validation_status"],
                     current_convergence=point_statuses["current_convergence"],
+                    metric_coverage=point_statuses["metric_coverage"],
                     device_file=(Path(args.device).name if args.device
                                  else None)),
                 status=point_statuses["run_status"],

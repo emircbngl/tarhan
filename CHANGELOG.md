@@ -73,6 +73,15 @@ when a release is cut.
   "legacy" rather than refused as damaged.
 - `compare runs` named one-sided metrics only on stderr, so the JSON rows
   carried just the intersection.
+- `validation_status=fully-covered` ignored metrics with no coverage record,
+  so a 2D run publishing nine metrics against two records read fully-covered
+  and `unverified` was unreachable. Published metrics without a record are
+  `unverified` now; the run's own diagnostics are excluded.
+- The terminal still printed "converged:" while the artifact said
+  `potential-step-converged`.
+- `solve_bias` gained a keyword-only `min_gummel`, so a diagnostic can force
+  iterations past the early exit. Without it the "25x budget" test compared
+  two identical three-iteration results.
 - `solve_bias` gained a `current_tol` parameter positioned in front of
   `on_iteration`, silently breaking the positional callback API — an old
   caller's callback was taken as a tolerance and never invoked. The parameter

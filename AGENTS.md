@@ -243,8 +243,10 @@ from a measurement.
 
 **The convergence THRESHOLD is still a known gap, not a claim.** `max|Δψ| < 1e-9` reports ~1e-13 at every bias while the
 current's per-pass change differs by four orders of magnitude between them
-(1D 0.4 V: 1e-10; 1D 0.1 V: 3e-4, no better at 400 iterations). The step is
-demonstrably not a claim about the answer. What is missing is a *threshold*:
+— with `min_gummel` forcing 119 iterations, NEITHER bias decays: each reaches
+a noise floor and wanders in it (0.1 V between 1e-5 and 9e-4; 0.4 V between
+1e-10 and 1e-8). The step is demonstrably not a claim about the answer. What
+is missing is a *threshold*:
 dividing by |I| breaks at equilibrium where the net current is an exact
 cancellation, dividing by the differenced components made every bias look
 settled to 1e-16, and a cancellation cut-off behaved differently in 1D and 2D.
@@ -259,7 +261,8 @@ artifact. Every run records `validation_profile` (a hash of envelope + basis +
 coverage), `metric_coverage` and a `device_fingerprint`, so it can answer
 later which evidence said "inside". A run outside
 still runs and still writes an artifact, with status
-`converged-outside-validated-range` and the breach named in provenance.
+`potential-step-converged-outside-validated-range` and the breach named in
+provenance.
 
 **A device that differs from the reference device also leaves the envelope**,
 because the envelope covers the inputs it NAMES — biases — and says nothing

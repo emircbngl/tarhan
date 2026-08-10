@@ -1584,3 +1584,38 @@ def test_the_progress_callback_still_works_positionally(model):
         solve_bias(device(), 0.3, None, 1e-9, 200,
                    lambda index, total: calls.append(index))
     assert calls, "the sixth positional argument is no longer the callback"
+
+
+def test_a_published_metric_with_no_coverage_record_is_unverified(tmp_path):
+    """`fully-covered` meant "every metric that HAS a record is covered".
+
+    A 2D run publishes nine metrics while the registry covers two, and it was
+    reporting fully-covered — so `unverified`, which the coverage vocabulary
+    defines, could never actually be reached. Reported in review.
+    """
+    record = json.loads(run("--format", "json", "run", "solve", PN2D,
+                            "--bias", "0.3", "--output",
+                            str(tmp_path)).stdout)[0]
+    provenance = json.loads((tmp_path / record["run_id"]
+                             / "provenance.json").read_text())
+    coverage = dict(part.split("=") for part in
+                    provenance["metric_coverage"].split("; "))
+
+    assert coverage["current_a_cm2"] == "measured-point"
+    assert coverage["terminal_current_a_per_cm"] == "unverified"
+    assert coverage["hole_current_a_per_cm"] == "unverified"
+    assert provenance["validation_status"] == "partially-covered"
+
+    # ...and the run's own diagnostics are not counted as physics claims.
+    assert "psi_step" not in coverage
+    assert "gummel_iterations" not in coverage
+
+
+def test_the_terminal_does_not_claim_more_than_the_artifact(tmp_path):
+    """The artifact said `potential-step-converged` while the terminal line
+    still said "converged". The weaker claim has to be the one in both."""
+    proc = run("run", "solve", PN1D, "--bias", "0.1", "--output",
+               str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    assert "converged:" not in proc.stderr
+    assert "potential step settled" in proc.stderr

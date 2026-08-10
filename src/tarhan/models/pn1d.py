@@ -430,7 +430,7 @@ def _edge_current(dev: PNDiode1D, x_hat, psi, n_h, p_h):
 
 def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
                gummel_tol: float = 1e-9, max_gummel: int = 60,
-               on_iteration=None):
+               on_iteration=None, *, min_gummel: int = 0):
     """Tek bias noktası; state=None ise dengeden başlar. Döner: durum sözlüğü.
 
     ``on_iteration(index, total)`` her Gummel dış adımının başında çağrılır.
@@ -475,6 +475,7 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
 
     previous_current = None
     current_change = None
+    current_history = []
     psi_step = float("inf")
     for g in range(max_gummel):
         if on_iteration is not None:
@@ -523,8 +524,9 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
         else:
             current_change = abs(total - previous_current) / abs(total)
         previous_current = total
+        current_history.append(current_change)
 
-        if psi_step < gummel_tol:
+        if psi_step < gummel_tol and g + 1 >= min_gummel:
             break
     else:
         # See pn2d: only an unsettled POTENTIAL is a failure.
@@ -541,7 +543,7 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
             "j": float(xp.mean(j_hat)) * j_scale, "v_hat": v_hat,
             "gummel_iters": g + 1,
             "psi_step": psi_step, "current_rel_change": current_change,
-}
+            "current_history": tuple(current_history)}
 
 
 def iv_sweep(dev: PNDiode1D, voltages, **kw):

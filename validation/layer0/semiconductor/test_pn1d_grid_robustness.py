@@ -152,10 +152,12 @@ def test_the_potential_step_is_not_a_claim_about_the_answer():
     tell those apart is not a claim about the result — which is the reviewer's
     point, and this is the evidence for it.
 
-    No threshold is asserted, because none is established: see
-    `pn2d.CURRENT_TOL` for the three normalisations that were tried and why
-    each failed. What IS asserted is the gap between the two measures, so the
-    finding cannot quietly disappear.
+    No threshold is asserted, because none is established: three
+    normalisations were tried and each failed (dividing by |I| breaks at
+    equilibrium, dividing by the differenced components flattens everything to
+    1e-16, and a cancellation cut-off behaved differently in 1D and 2D). What
+    IS asserted is the gap between the two measures, so the finding cannot
+    quietly disappear.
     """
     from tarhan.models.pn1d import PNDiode1D, solve_bias
 
@@ -183,25 +185,44 @@ def test_the_potential_step_is_not_a_claim_about_the_answer():
         "test with a real convergence gate rather than loosening it")
 
 
-def test_more_iterations_do_not_settle_the_marginal_bias():
-    """A single last-step ratio cannot tell a decaying sequence from a plateau.
+def test_the_current_reaches_a_noise_floor_and_which_floor_depends_on_bias():
+    """The sequence, not one number off the end of it.
 
-    That was the second half of the review's objection, and it is the half
-    that actually distinguishes "converging slowly" from "sitting on a noise
-    floor": give the solve a much larger budget and see whether the number
-    improves. A settling bias does; a stalled one does not.
+    The previous version of this test asked for `max_gummel=8` versus `200`
+    and compared the results. The solver exits early on the potential
+    tolerance, so BOTH calls ran three iterations and returned identical
+    floats: it compared a number with itself and asserted `<=` on equality.
+    Reported in review, and it is the second test this session that did not
+    test its own claim.
+
+    `min_gummel` exists so a diagnostic can force iterations past that exit.
+    With 119 of them the behaviour is visible and it is not what I described
+    twice before. Neither bias DECAYS. Both reach a noise floor and wander in
+    it indefinitely:
+
+        0.1 V   1e-5 .. 9e-4, still wandering at pass 119
+        0.4 V   1e-10 .. 1e-8, from pass 3 onward
+
+    So the finding stands — the potential step says 1e-13 for both while the
+    currents behind them differ by five orders of magnitude — but the honest
+    description is two different noise floors, not "plateau versus decay".
+    This asserts the separation between the floors, which is the part that
+    survives a different machine.
     """
+    import statistics
+
     from tarhan.models.pn1d import PNDiode1D, solve_bias
 
     device = PNDiode1D()
-    short = solve_bias(device, 0.1, max_gummel=8)["current_rel_change"]
-    long = solve_bias(device, 0.1, max_gummel=200)["current_rel_change"]
-    assert long > short / 10.0, (
-        f"0.1 V improved from {short:.2e} to {long:.2e} with 25x the budget, "
-        "so it may be converging slowly rather than stalled — re-examine the "
-        "finding rather than keeping this test")
 
-    settled_short = solve_bias(device, 0.4, max_gummel=8)["current_rel_change"]
-    settled_long = solve_bias(device, 0.4, max_gummel=200)["current_rel_change"]
-    assert settled_long <= settled_short, \
-        "0.4 V is supposed to be the bias that improves with iteration"
+    def floor(bias):
+        state = solve_bias(device, bias, min_gummel=60, max_gummel=80)
+        history = [x for x in state["current_history"] if x is not None]
+        assert len(history) > 40, "min_gummel did not force the iterations"
+        return statistics.median(history[10:])      # past the transient
+
+    marginal, settled = floor(0.1), floor(0.4)
+    assert marginal / settled > 100, (
+        f"the two noise floors are {marginal:.1e} and {settled:.1e}, a factor "
+        f"of {marginal / settled:.0f}. They used to differ by ~1e5; if the "
+        "solver improved, replace this with a real convergence gate")
