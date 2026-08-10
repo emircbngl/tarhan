@@ -262,3 +262,80 @@ def test_every_runnable_envelope_names_its_device(capability_id):
     cap = get(capability_id)
     assert cap.envelope and cap.envelope_basis
     assert "validation/layer0" in cap.envelope_basis
+
+
+# --- the evidence claim is data, not prose --------------------------------
+
+def test_the_envelope_cannot_be_mutated_past_its_own_validation():
+    """`Capability` is frozen but `envelope` was an ordinary dict, so
+    `cap.envelope["bias_v"] = ()` rewrote the global registry past every check
+    in __post_init__ — and an empty interval list means everything is
+    outside. Reproduced in re-review."""
+    cap = get("semiconductor.pn.drift-diffusion.2d.steady")
+    with pytest.raises(TypeError):
+        cap.envelope["bias_v"] = ()
+    assert cap.outside_envelope({"bias_v": 0.3}) == ()
+
+
+def test_a_blank_basis_is_not_a_basis():
+    from tarhan.capabilities import CapabilityError
+
+    with pytest.raises(CapabilityError, match="naming the device"):
+        _planned(envelope={"bias_v": ((0.0, 1.0),)}, envelope_basis="   ")
+
+
+@pytest.mark.parametrize("bad,why", [
+    (("", (0.1,), "t.py"), "name its metric"),
+    (("j", (), "t.py"), "no measured points"),
+    (("j", (float("nan"),), "t.py"), "finite"),
+    (("j", (0.1,), "  "), "evidence file"),
+])
+def test_a_coverage_record_that_covers_nothing_is_refused(bad, why):
+    from tarhan.capabilities import CapabilityError, MetricCoverage
+
+    with pytest.raises(CapabilityError, match=why):
+        MetricCoverage(*bad)
+
+
+def test_coverage_distinguishes_a_measurement_from_an_interpolation():
+    """An interval said "inside" for a bias nobody ever measured. Defensible
+    for a smooth I-V curve, and NOT the same claim — so it is named."""
+    from tarhan.capabilities import MetricCoverage
+
+    cover = MetricCoverage("current_a_cm2", (0.2, 0.3, 0.4), "t.py")
+    assert cover.kind_at(0.3) == "measured-point"
+    assert cover.kind_at(0.25) == "interpolated"
+    assert cover.kind_at(0.5) == "outside"
+
+
+@pytest.mark.parametrize("capability_id", [
+    "semiconductor.pn.drift-diffusion.1d.steady",
+    "semiconductor.pn.drift-diffusion.2d.steady",
+])
+def test_a_runnable_capability_reports_coverage_per_metric(capability_id):
+    """One status word applied the best-covered metric's evidence to the whole
+    artifact. The 2D potential is checked at 0.0 and 0.30 V and its current at
+    0.20, 0.30 and 0.40 V — a run at 0.40 V rests on one and not the other."""
+    cap = get(capability_id)
+    assert cap.coverage, "a validated capability must say what it covers"
+    for record in cap.coverage:
+        assert (REPO / record.evidence).exists(), \
+            f"{record.metric} points at {record.evidence}, which is not there"
+
+    report = cap.coverage_report({"bias_v": 0.0})
+    assert set(report) == {c.metric for c in cap.coverage}
+    assert report["psi"] == "measured-point"
+
+
+def test_the_validation_profile_changes_when_the_evidence_does():
+    """The id an artifact records so it can answer "which evidence said
+    inside?" later. If it did not move with the claim it would be decoration."""
+    from tarhan.capabilities import MetricCoverage
+
+    base = dict(envelope={"bias_v": ((0.0, 1.0),)}, envelope_basis="synthetic",
+                coverage=(MetricCoverage("j", (0.1,), "t.py"),))
+    first = _planned(**base).validation_profile()
+    assert first == _planned(**base).validation_profile()
+    assert first != _planned(**dict(base, envelope_basis="other")).validation_profile()
+    assert first != _planned(**dict(
+        base, coverage=(MetricCoverage("j", (0.2,), "t.py"),))).validation_profile()

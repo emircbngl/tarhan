@@ -51,9 +51,12 @@ python3 tools/job.py run tests -- pytest -q
 python3 tools/job.py wait tests
 ```
 
-Measured on an M4: the full suite is **a few seconds** (338 passed, 4 xfail).
-If it has not finished in a minute, something is wrong — do not wait longer,
-look at the log.
+Measured on an M4: the full suite is **about 80 seconds** (733 collected,
+729 passed, 4 xfail). It was "a few seconds (338 passed)" when that line was
+written and the number was never updated — an instruction to kill a run after
+a minute would now abort a healthy suite. Treat the figure as approximate and
+re-measure rather than trusting it. If it has not finished in **five
+minutes**, something is wrong — do not wait longer, look at the log.
 
 `tarhan demo` prints its table and exits. It only opens a plot window when
 stdout is a terminal; pass `--show` to force one, `--save out.png` to write the
@@ -203,7 +206,9 @@ in that state: there is no bias waveform to give them.
 **A run says whether it is inside the evidence.** Capability records carry a
 machine-readable `envelope`, visible in `capabilities list/show` so a client
 can read it before running anything — **structured** in `--format json`
-(`{"bias_v": {"intervals": [[0.0, 0.0], [0.3, 0.5]]}}`), text elsewhere.
+(`{"bias_v": {"intervals": [[0.0, 0.0], [0.2, 0.4]]}}`), text elsewhere, and
+alongside it `envelope_basis`, a `validation_profile` hash and per-metric
+`coverage`.
 
 It is a **union of intervals**, because the evidence is not one range, and it
 **names the device it was measured on** (`envelope_basis`, shown by
@@ -213,7 +218,15 @@ top contact — and applied to the device `run solve` actually builds, which is
 the generated rectangular diode at `1e16`, `1350/480`, full end contacts.
 Evidence from one device says nothing about another. Each envelope now comes
 from that device's own evidence: 1D `[0,0] ∪ [0.15, 0.40]` against DEVSIM, 2D
-`[0,0] ∪ [0.20, 0.40]` against the validated 1D solver. A run outside
+`[0,0] ∪ [0.20, 0.40]` against the validated 1D solver.
+
+**Coverage is per METRIC, and an interval is not a measurement.** The 2D
+device's potential is checked at 0.0 and 0.30 V while its current is checked
+at 0.20, 0.30 and 0.40 V, so a run reports each metric as `measured-point`,
+`interpolated`, `outside` or `unverified` rather than one word for the whole
+artifact. Every run records `validation_profile` (a hash of envelope + basis +
+coverage), `metric_coverage` and a `device_fingerprint`, so it can answer
+later which evidence said "inside". A run outside
 still runs and still writes an artifact, with status
 `converged-outside-validated-range` and the breach named in provenance.
 

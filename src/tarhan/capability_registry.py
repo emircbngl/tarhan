@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from tarhan.capabilities import Capability, Evidence
+from tarhan.capabilities import Capability, Evidence, MetricCoverage
 
 _V = "validation/layer0"
 
@@ -119,6 +119,13 @@ REGISTRY: Tuple[Capability, ...] = (
         envelope={"bias_v": ((0.0, 0.0), (0.15, 0.40))},
         envelope_basis="PNDiode1D at its defaults, against DEVSIM "
                        "(validation/layer0/semiconductor/test_oracle_devsim.py)",
+        coverage=(
+            MetricCoverage("psi", (0.0,),
+                           f"{_V}/semiconductor/test_flagship_pn1d_gummel.py"),
+            MetricCoverage("current_a_cm2", (0.15, 0.20, 0.25, 0.30, 0.35,
+                                             0.40),
+                           f"{_V}/semiconductor/test_oracle_devsim.py"),
+        ),
         source="models/pn1d.py",
         inputs=("doping profile", "grid", "bias", "SRH lifetimes (optional)"),
         produces=("psi, n, p", "terminal current", "band diagram"),
@@ -172,6 +179,15 @@ REGISTRY: Tuple[Capability, ...] = (
         envelope_basis="the generated RectangularDiode2D at its defaults, "
                        "against the validated 1D solver "
                        "(validation/layer0/semiconductor/test_diode2d_mesh.py)",
+        # Per METRIC, because they are not covered at the same biases and one
+        # status word was applying the best-covered metric's evidence to the
+        # whole artifact.
+        coverage=(
+            MetricCoverage("psi", (0.0, 0.30),
+                           f"{_V}/semiconductor/test_diode2d_mesh.py"),
+            MetricCoverage("current_a_cm2", (0.20, 0.30, 0.40),
+                           f"{_V}/semiconductor/test_diode2d_mesh.py"),
+        ),
         limits=("the terminal HOLE current is only reproducible above about "
                 "0.3 V; at 0.2 V it wanders by a few percent with the "
                 "platform and with the convergence tolerance, so an I-V claim "

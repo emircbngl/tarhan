@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import math
 import os
 import sys
@@ -25,7 +26,8 @@ from tarhan.capability_registry import CapabilityNotFound, all_capabilities, get
 from tarhan.forge import Forge
 from tarhan.numerics.diffusion1d import cottrell_fd_samples
 
-_CAP_COLUMNS = ("id", "status", "dimension", "time", "source", "envelope")
+_CAP_COLUMNS = ("id", "status", "dimension", "time", "source", "envelope",
+                "envelope_basis", "validation_profile", "coverage")
 
 
 def _envelope_text(cap) -> str:
@@ -48,7 +50,15 @@ def _cap_row(cap, fmt: str = "table") -> dict:
             # thing the output contract exists to prevent. Text elsewhere,
             # because a table cell and a CSV field cannot hold a nested map.
             "envelope": (cap.envelope_json() if fmt == "json"
-                         else _envelope_text(cap))}
+                         else _envelope_text(cap)),
+            "envelope_basis": cap.envelope_basis,
+            "validation_profile": cap.validation_profile(),
+            "coverage": ({c.metric: {"points": list(c.points),
+                                     "evidence": c.evidence}
+                          for c in cap.coverage} if fmt == "json"
+                         else "; ".join(f"{c.metric}@"
+                                        + ",".join(f"{p:g}" for p in c.points)
+                                        for c in cap.coverage))}
 
 
 def _capabilities_list(out: cliout.Output) -> int:
@@ -655,7 +665,21 @@ def _envelope_breaches(cap, runner, inputs) -> Tuple[str, ...]:
     return tuple(out)
 
 
-def _provenance(cap, runner, *, scenario, outside, candidate_id=None,
+def _device_fingerprint(inputs) -> str:
+    """A hash of the resolved device, so an artifact names WHAT it solved.
+
+    Provenance said "overridden" without saying overridden to what, so two
+    different materials produced records that read identically.
+    """
+    import hashlib
+
+    payload = json.dumps({k: v for k, v in sorted(inputs.items())
+                          if k != "bias_v"},
+                         sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def _provenance(cap, runner, *, scenario, outside, inputs, candidate_id=None,
                 device_file=None):
     """The evidence fields EVERY run records, wherever it was launched from.
 
@@ -677,6 +701,19 @@ def _provenance(cap, runner, *, scenario, outside, candidate_id=None,
             "uncertainty_treatment": "nominal-only",
             "validation_envelope": ("inside" if not outside
                                     else "; ".join(outside)),
+            # The evidence claim, as data. `envelope_basis` was free text in
+            # the registry with no machine link to anything, and none of it
+            # reached the artifact — so a run could not answer "which evidence
+            # profile said inside?" after the fact. Reported in re-review.
+            "validation_profile": cap.validation_profile(),
+            "validation_basis": cap.envelope_basis,
+            # Per metric, because they are not covered at the same biases:
+            # this device's potential is checked at 0.0 and 0.30 V while its
+            # current is checked at 0.20, 0.30 and 0.40 V.
+            "metric_coverage": "; ".join(
+                f"{metric}={kind}" for metric, kind
+                in sorted(cap.coverage_report(inputs).items())),
+            "device_fingerprint": _device_fingerprint(inputs),
             "scenario": scenario}
 
 
@@ -873,7 +910,7 @@ def _run_solve(out: cliout.Output, args) -> int:
         inputs=inputs, solver=solver, metrics=metrics,
         provenance=_provenance(
             cap, runner, scenario=f"single bias {args.bias} V",
-            outside=outside, candidate_id=args.candidate_id,
+            outside=outside, inputs=inputs, candidate_id=args.candidate_id,
             device_file=Path(args.device).name if args.device else None),
         status=run_status, command=_recorded_command(),
         version=__version__, fields_data=fields,
@@ -1071,7 +1108,7 @@ def _run_sweep(out: cliout.Output, args) -> int:
                 inputs=inputs, solver=solver, metrics=metrics,
                 provenance=_provenance(
                     cap, runner, scenario=f"sweep point {point}",
-                    outside=breaches,
+                    outside=breaches, inputs=inputs,
                     device_file=(Path(args.device).name if args.device
                                  else None)),
                 status=row["status"], command=_recorded_command(),

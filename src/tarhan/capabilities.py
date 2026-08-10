@@ -30,9 +30,11 @@ reason plus the condition that would unlock it.
 """
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field
-from typing import Mapping, Tuple
+from types import MappingProxyType
+from typing import Dict, Mapping, Tuple
 
 #: A capability is in exactly one of these states.
 #:
@@ -71,6 +73,59 @@ _NOT_RUNNABLE = ("blocked", "planned")
 #: use. Mirrors ``candidate.CONDITIONS`` for the same reason: a bound over
 #: something nothing supplies cannot be checked.
 ENVELOPE_INPUTS = ("bias_v",)
+
+
+#: What is known about ONE metric at ONE operating point.
+#:
+#: `measured-point` — a test compares this metric at exactly this value.
+#: `interpolated`   — it sits between two measured points. Defensible for a
+#:                    smooth I-V curve, and NOT the same claim as measured.
+#: `outside`        — beyond every measured point for this metric.
+#: `unverified`     — this metric has no coverage record at all.
+COVERAGE_KINDS = ("measured-point", "interpolated", "outside", "unverified")
+
+
+@dataclass(frozen=True)
+class MetricCoverage:
+    """Which biases a single metric was actually compared at.
+
+    The envelope was metric-BLIND: one interval covered a capability whose
+    potential is checked at 0.0 and 0.30 V and whose current is checked at
+    0.20, 0.30 and 0.40 V. A run at 0.40 V therefore reported the same bare
+    `inside` as one at 0.0 V, though they rest on different evidence — and the
+    capability's own `limits` field simultaneously said the hole current is
+    unsupported at 0.20 V. Reported in re-review.
+    """
+
+    metric: str
+    points: Tuple[float, ...]
+    evidence: str
+
+    def __post_init__(self):
+        if not self.metric or not self.metric.strip():
+            raise CapabilityError("a coverage record must name its metric")
+        if not self.points:
+            raise CapabilityError(
+                f"{self.metric}: coverage with no measured points is not "
+                "coverage")
+        for value in self.points:
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value)):
+                raise CapabilityError(
+                    f"{self.metric}: measured point {value!r} is not a finite "
+                    "number")
+        if not self.evidence.strip():
+            raise CapabilityError(
+                f"{self.metric}: coverage must point at the evidence file")
+        object.__setattr__(self, "points",
+                           tuple(sorted(float(v) for v in self.points)))
+
+    def kind_at(self, value: float) -> str:
+        if any(abs(value - point) <= 1e-12 for point in self.points):
+            return "measured-point"
+        if self.points[0] <= value <= self.points[-1]:
+            return "interpolated"
+        return "outside"
 
 
 class CapabilityError(ValueError):
@@ -138,11 +193,50 @@ class Capability:
     #: entirely. Reported in re-review, and a stronger finding than the
     #: mis-attributed comment I had called it.
     envelope_basis: str = ""
+    #: Per-metric measured points. Without it, one status word applies the
+    #: evidence for the best-covered metric to the whole artifact.
+    coverage: Tuple[MetricCoverage, ...] = ()
+
+    def coverage_report(self, inputs) -> Dict[str, str]:
+        """Per metric, what this run's operating point actually rests on."""
+        value = inputs.get("bias_v")
+        if value is None:
+            return {c.metric: "unverified" for c in self.coverage}
+        return {c.metric: c.kind_at(float(value)) for c in self.coverage}
+
+    def validation_profile(self) -> str:
+        """A hash of the whole evidence claim: envelope, basis and coverage.
+
+        `envelope_basis` alone was free text with no machine link to anything —
+        an artifact could not answer "which evidence profile said inside?"
+        after the fact. This id can be recorded in a run and compared later.
+        """
+        import hashlib
+
+        payload = json.dumps(
+            {"envelope": {k: [list(p) for p in v]
+                          for k, v in sorted(self.envelope.items())},
+             "basis": self.envelope_basis,
+             "coverage": [{"metric": c.metric, "points": list(c.points),
+                           "evidence": c.evidence}
+                          for c in sorted(self.coverage,
+                                          key=lambda c: c.metric)]},
+            sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
     def _validate_envelope(self) -> None:
         """The envelope schema, enforced. It was not, and accepted an empty
         interval list, a reversed [1, 0], a NaN bound, and an input name no
         run reports — each of which silently means "everything is inside"."""
+        # Frozen for real. `Capability` is a frozen dataclass but `envelope`
+        # was an ordinary dict, so `cap.envelope["bias_v"] = ()` mutated the
+        # global registry past every check above. Reported in re-review.
+        object.__setattr__(self, "envelope", MappingProxyType(
+            {name: tuple(tuple(float(v) for v in pair) for pair in intervals)
+             for name, intervals in self.envelope.items()}))
+        object.__setattr__(self, "envelope_basis", self.envelope_basis.strip())
+        object.__setattr__(self, "coverage", tuple(self.coverage))
+
         if self.envelope and not self.envelope_basis:
             raise CapabilityError(
                 f"{self.id} gives an envelope without naming the device it "

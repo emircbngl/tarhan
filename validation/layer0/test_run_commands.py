@@ -1449,3 +1449,65 @@ def test_the_gap_between_the_intervals_is_still_outside(tmp_path):
                             "--bias", "0.45", "--output",
                             str(tmp_path)).stdout)[0]
     assert record["status"] == "converged-outside-validated-range"
+
+
+def test_an_artifact_records_which_evidence_said_inside(tmp_path):
+    """`envelope_basis` was free text in the registry with no machine link to
+    anything, and none of it reached the artifact — so a run could not answer
+    "which evidence profile said inside?" after the fact. Reported in
+    re-review."""
+    from tarhan.capability_registry import get
+
+    record = json.loads(run("--format", "json", "run", "solve", PN2D,
+                            "--bias", "0.4", "--output",
+                            str(tmp_path)).stdout)[0]
+    provenance = json.loads((tmp_path / record["run_id"]
+                             / "provenance.json").read_text())
+
+    assert provenance["validation_profile"] == \
+        get(PN2D).validation_profile()
+    assert "RectangularDiode2D" in provenance["validation_basis"]
+    assert len(provenance["device_fingerprint"]) == 12
+
+    # Per metric, not one word for the whole artifact: at 0.40 V this device's
+    # current is a measured point and its potential is not covered at all.
+    coverage = dict(part.split("=") for part in
+                    provenance["metric_coverage"].split("; "))
+    assert coverage["current_a_cm2"] == "measured-point"
+    assert coverage["psi"] == "outside"
+
+
+def test_two_different_materials_get_two_device_fingerprints(tmp_path):
+    """Provenance said "overridden" without saying overridden to WHAT, so two
+    different materials produced records that read identically."""
+    prints = set()
+    for mu_n in (700.0, 900.0):
+        spec = tmp_path / f"d{mu_n}.toml"
+        spec.write_text(f"mu_n = {mu_n}\n", encoding="utf-8")
+        record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                                "--bias", "0.3", "--device", str(spec),
+                                "--output", str(tmp_path)).stdout)[0]
+        prints.add(json.loads((tmp_path / record["run_id"]
+                               / "provenance.json").read_text())
+                   ["device_fingerprint"])
+    assert len(prints) == 2
+
+
+def test_a_sweep_point_carries_the_evidence_fields_too(tmp_path):
+    rows = json.loads(run("--format", "json", "run", "sweep", PN2D,
+                          "--vary", "bias_v=0.3,0.4", "--output",
+                          str(tmp_path)).stdout)
+    provenance = json.loads((tmp_path / rows[0]["run_id"]
+                             / "provenance.json").read_text())
+    for key in ("validation_profile", "validation_basis", "metric_coverage",
+                "device_fingerprint"):
+        assert provenance[key], f"sweep dropped {key}"
+
+
+def test_capabilities_show_exposes_the_whole_evidence_claim():
+    proc = run("--format", "json", "capabilities", "show", PN2D)
+    record = json.loads(proc.stdout)[0]
+    assert "RectangularDiode2D" in record["envelope_basis"]
+    assert len(record["validation_profile"]) == 12
+    assert record["coverage"]["current_a_cm2"]["points"] == [0.2, 0.3, 0.4]
+    assert record["coverage"]["psi"]["points"] == [0.0, 0.3]

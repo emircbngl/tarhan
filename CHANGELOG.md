@@ -73,6 +73,18 @@ when a release is cut.
   "legacy" rather than refused as damaged.
 - `compare runs` named one-sided metrics only on stderr, so the JSON rows
   carried just the intersection.
+- `envelope_basis` was unvalidated free text with no machine link to the
+  evidence, absent from `--format json` and absent from every artifact — so a
+  run could not answer which evidence profile called it "inside". Runs now
+  record `validation_profile`, `validation_basis`, `metric_coverage` and a
+  `device_fingerprint`.
+- Coverage is per METRIC. One interval covered a device whose potential is
+  checked at 0.0/0.30 V and whose current is checked at 0.20/0.30/0.40 V, so
+  one status word applied the best-covered metric's evidence to the whole
+  artifact. Each metric now reports `measured-point`, `interpolated`,
+  `outside` or `unverified` — an interval is not a measurement.
+- `Capability` is frozen but `envelope` was a plain dict, so assigning to it
+  rewrote the global registry past every validation.
 - The 2D envelope was taken from the DEVSIM-mesh stage and applied to the
   CLI's generated device, which has different doping, mobilities and contacts.
   0.5 V read "inside" with no evidence for that device at all, and 0.2 V read
