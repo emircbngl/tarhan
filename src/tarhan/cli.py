@@ -321,7 +321,8 @@ def _solve_pn1d_steady(inputs, on_iteration=None):
                # asserted: the potential step AND the terminal current's
                # change per outer pass.
                "psi_step": float(state["psi_step"]),
-               "current_rel_change": float(state["current_rel_change"])}
+               "current_rel_change": (None if state["current_rel_change"] is None
+                                      else float(state["current_rel_change"]))}
     fields = {"x_hat": state["x_hat"], "psi": state["psi"],
               "n_hat": state["n_hat"], "p_hat": state["p_hat"]}
     return metrics, fields
@@ -359,7 +360,8 @@ def _solve_pn2d_steady(inputs, on_iteration=None):
     # from a formula — physics_verify is unavailable this session.
     residual = state["coupled_residual"]
     metrics = {"psi_step": float(state["psi_step"]),
-               "current_rel_change": float(state["current_rel_change"]),
+               "current_rel_change": (None if state["current_rel_change"] is None
+                                      else float(state["current_rel_change"])),
                "coupled_poisson_residual": float(residual["poisson"]),
                "current_a_cm2": float(state["i"]) / spec.height,
                "terminal_current_a_per_cm": float(state["i"]),
@@ -688,8 +690,44 @@ def _device_fingerprint(inputs) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
+def _statuses(cap, inputs, outside, metrics):
+    """The four status fields, computed ONCE for solve and sweep alike.
+
+    `run solve` and `run sweep` computed these separately, so the rename to
+    `potential-step-converged` landed in one and not the other and a sweep
+    kept publishing the old word. That is the third time in this review cycle
+    that these two paths have disagreed — provenance, the reference-device
+    check, and now the status itself. One producer.
+
+    `solver_status` says only what is tested: the potential STEP settled. It
+    used to say "converged" beside a current_rel_change of 3.49e-4.
+    `validation_status` is metric-aware, because `inside` described
+    bias-envelope membership while the artifact published metrics that
+    envelope says nothing about.
+    """
+    change = metrics.get("current_rel_change")
+    kinds = set(cap.coverage_report(inputs).values())
+    if outside:
+        validation_status = "outside-validated-range"
+    elif not kinds or kinds == {"unverified"}:
+        validation_status = "uncovered"
+    elif kinds <= {"measured-point"}:
+        validation_status = "fully-covered"
+    else:
+        validation_status = "partially-covered"
+
+    solver_status = "potential-step-converged"
+    return {"solver_status": solver_status,
+            "validation_status": validation_status,
+            "current_convergence": ("unassessed" if change is None
+                                    else f"measured:{change:.3e}"),
+            "run_status": (solver_status if not outside
+                           else f"{solver_status}-outside-validated-range")}
+
+
 def _provenance(cap, runner, *, scenario, outside, inputs, solver_status,
-                validation_status, candidate_id=None, device_file=None):
+                validation_status, current_convergence="unassessed",
+                candidate_id=None, device_file=None):
     """The evidence fields EVERY run records, wherever it was launched from.
 
     `run sweep` built its own three-key dict, so a sweep point silently
@@ -709,6 +747,7 @@ def _provenance(cap, runner, *, scenario, outside, inputs, solver_status,
             # nominal value alone. Defensible choice, indefensible silence.
             "uncertainty_treatment": "nominal-only",
             "solver_status": solver_status,
+            "current_convergence": current_convergence,
             "validation_status": validation_status,
             "validation_envelope": ("inside" if not outside
                                     else "; ".join(outside)),
@@ -920,10 +959,11 @@ def _run_solve(out: cliout.Output, args) -> int:
     # recorded beside it (see pn2d.CURRENT_TOL for what is and is not
     # established); turning it into a verdict needs a scale nobody has pinned
     # down yet, and asserting one would be the failure this keeps finding.
-    solver_status = "converged"
-    validation_status = ("outside-validated-range" if outside else "inside")
-    run_status = (solver_status if not outside
-                  else f"{solver_status}-outside-validated-range")
+    statuses = _statuses(cap, inputs, outside, metrics)
+    solver_status = statuses["solver_status"]
+    validation_status = statuses["validation_status"]
+    current_convergence = statuses["current_convergence"]
+    run_status = statuses["run_status"]
     if outside:
         for line in outside:
             out.note(f"OUTSIDE THE VALIDATED RANGE: {line}")
@@ -937,6 +977,7 @@ def _run_solve(out: cliout.Output, args) -> int:
             cap, runner, scenario=f"single bias {args.bias} V",
             outside=outside, inputs=inputs, solver_status=solver_status,
             validation_status=validation_status,
+            current_convergence=current_convergence,
             candidate_id=args.candidate_id,
             device_file=Path(args.device).name if args.device else None),
         status=run_status, command=_recorded_command(),
@@ -1109,10 +1150,7 @@ def _run_sweep(out: cliout.Output, args) -> int:
                        detail=f"point {index + 1}/{len(points)}")
 
             breaches = _envelope_breaches(cap, runner, inputs)
-            row = {**point,
-                   "status": ("converged-outside-validated-range" if breaches
-                              else "converged"),
-                   "run_id": ""}
+            row = {**point, "status": "", "run_id": ""}
             try:
                 metrics, fields = runner.solve({**inputs, **solver})
             except ValueError as exc:
@@ -1130,18 +1168,21 @@ def _run_sweep(out: cliout.Output, args) -> int:
                 rows.append(row)
                 continue
 
+            point_statuses = _statuses(cap, inputs, breaches, metrics)
+            row["status"] = point_statuses["run_status"]
             path = artifact.write_run(
                 args.output, capability=cap.id, capability_status=cap.status,
                 inputs=inputs, solver=solver, metrics=metrics,
                 provenance=_provenance(
                     cap, runner, scenario=f"sweep point {point}",
                     outside=breaches, inputs=inputs,
-                    solver_status="converged",
-                    validation_status=("outside-validated-range" if breaches
-                                       else "inside"),
+                    solver_status=point_statuses["solver_status"],
+                    validation_status=point_statuses["validation_status"],
+                    current_convergence=point_statuses["current_convergence"],
                     device_file=(Path(args.device).name if args.device
                                  else None)),
-                status=row["status"], command=_recorded_command(),
+                status=point_statuses["run_status"],
+                command=_recorded_command(),
                 version=__version__, fields_data=fields,
                 report=f"# {cap.id}\n\nsweep point {point}\n")
             row["run_id"] = path.name

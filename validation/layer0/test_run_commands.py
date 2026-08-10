@@ -56,7 +56,7 @@ def test_a_solve_writes_a_run_that_reads_back(tmp_path):
     record = json.loads(shown.stdout)[0]
     assert record["capability"] == PN1D
     assert record["capability_status"] == "validated"
-    assert record["status"] == "converged"
+    assert record["status"] == "potential-step-converged"
 
 
 def test_the_same_problem_reuses_the_same_directory(tmp_path):
@@ -564,7 +564,7 @@ def test_a_sweep_writes_an_ordinary_run_per_point(tmp_path):
     rows = json.loads(proc.stdout)
     assert len(rows) == 3
     assert [r["bias_v"] for r in rows] == [0.2, 0.3, 0.4]
-    assert all(r["status"] == "converged" for r in rows)
+    assert all(r["status"] == "potential-step-converged" for r in rows)
 
     for row in rows:
         shown = run("--format", "json", "run", "show", row["run_id"],
@@ -663,7 +663,7 @@ def test_a_bad_point_is_named_and_the_rest_still_run(tmp_path):
     rows = {r["gamma"]: r for r in json.loads(proc.stdout)}
     assert rows[0.5]["status"] == "invalid-device"
     assert rows[0.5]["run_id"] == "", "a refused point must not claim an artifact"
-    assert rows[1.06]["status"] == "converged"
+    assert rows[1.06]["status"] == "potential-step-converged"
     assert (tmp_path / rows[1.06]["run_id"]).is_dir()
 
 
@@ -1194,7 +1194,7 @@ def test_a_run_outside_the_validated_range_says_so(tmp_path):
     inside = json.loads(run("--format", "json", "run", "solve", PN2D,
                             "--bias", "0.4", "--output",
                             str(tmp_path)).stdout)[0]
-    assert inside["status"] == "converged"
+    assert inside["status"] == "potential-step-converged"
 
     # 0.5 V, not 0.2 V. The envelope used to be borrowed from the DEVSIM-mesh
     # stage, under which 0.2 V was excluded; corrected to this device's own
@@ -1203,14 +1203,14 @@ def test_a_run_outside_the_validated_range_says_so(tmp_path):
     outside = json.loads(run("--format", "json", "run", "solve", PN2D,
                              "--bias", "0.5", "--output",
                              str(tmp_path)).stdout)[0]
-    assert outside["status"] == "converged-outside-validated-range"
+    assert outside["status"] == "potential-step-converged-outside-validated-range"
 
     provenance = json.loads((tmp_path / outside["run_id"]
                              / "provenance.json").read_text())
     assert "outside the validated" in provenance["validation_envelope"]
     manifest = json.loads((tmp_path / outside["run_id"]
                            / "manifest.json").read_text())
-    assert manifest["status"] == "converged-outside-validated-range"
+    assert manifest["status"] == "potential-step-converged-outside-validated-range"
 
 
 def test_the_envelope_warning_reaches_a_human_too(tmp_path):
@@ -1336,7 +1336,7 @@ def test_a_device_override_leaves_the_reference_device(tmp_path):
     record = json.loads(run("--format", "json", "run", "solve", PN1D,
                             "--bias", "0.3", "--device", str(spec),
                             "--output", str(tmp_path)).stdout)[0]
-    assert record["status"] == "converged-outside-validated-range"
+    assert record["status"] == "potential-step-converged-outside-validated-range"
     provenance = json.loads((tmp_path / record["run_id"]
                              / "provenance.json").read_text())
     assert "reference device" in provenance["validation_envelope"]
@@ -1348,11 +1348,11 @@ def test_the_runnable_1d_capability_has_an_envelope_too(tmp_path):
     inside = json.loads(run("--format", "json", "run", "solve", PN1D,
                             "--bias", "0.3", "--output",
                             str(tmp_path)).stdout)[0]
-    assert inside["status"] == "converged"
+    assert inside["status"] == "potential-step-converged"
     outside = json.loads(run("--format", "json", "run", "solve", PN1D,
                              "--bias", "0.5", "--output",
                              str(tmp_path)).stdout)[0]
-    assert outside["status"] == "converged-outside-validated-range"
+    assert outside["status"] == "potential-step-converged-outside-validated-range"
 
 
 def test_the_envelope_is_discoverable_without_running_anything():
@@ -1396,7 +1396,7 @@ def test_a_swept_device_override_also_leaves_the_reference_device(tmp_path):
                           "--device", str(spec), "--vary", "bias_v=0.3,0.4",
                           "--output", str(tmp_path)).stdout)
     assert [r["status"] for r in rows] == \
-        ["converged-outside-validated-range"] * 2
+        ["potential-step-converged-outside-validated-range"] * 2
     provenance = json.loads((tmp_path / rows[0]["run_id"]
                              / "provenance.json").read_text())
     assert "reference device" in provenance["validation_envelope"]
@@ -1408,7 +1408,7 @@ def test_sweeping_a_device_axis_leaves_the_reference_device(tmp_path):
     rows = json.loads(run("--format", "json", "run", "sweep", PN2D,
                           "--vary", "mu_n=400,700", "--bias", "0.4",
                           "--output", str(tmp_path)).stdout)
-    assert all(r["status"] == "converged-outside-validated-range"
+    assert all(r["status"] == "potential-step-converged-outside-validated-range"
                for r in rows)
 
 
@@ -1417,7 +1417,7 @@ def test_a_plain_sweep_on_the_reference_device_stays_inside(tmp_path):
     rows = json.loads(run("--format", "json", "run", "sweep", PN2D,
                           "--vary", "bias_v=0.3,0.4", "--output",
                           str(tmp_path)).stdout)
-    assert all(r["status"] == "converged" for r in rows)
+    assert all(r["status"] == "potential-step-converged" for r in rows)
 
 
 @pytest.mark.parametrize("capability", [PN1D, PN2D])
@@ -1435,7 +1435,7 @@ def test_equilibrium_is_inside_the_envelope(tmp_path, capability):
     record = json.loads(run("--format", "json", "run", "solve", capability,
                             "--bias", "0", "--output",
                             str(tmp_path)).stdout)[0]
-    assert record["status"] == "converged"
+    assert record["status"] == "potential-step-converged"
 
 
 def test_the_gap_between_the_intervals_is_still_outside(tmp_path):
@@ -1448,7 +1448,7 @@ def test_the_gap_between_the_intervals_is_still_outside(tmp_path):
     record = json.loads(run("--format", "json", "run", "solve", PN2D,
                             "--bias", "0.45", "--output",
                             str(tmp_path)).stdout)[0]
-    assert record["status"] == "converged-outside-validated-range"
+    assert record["status"] == "potential-step-converged-outside-validated-range"
 
 
 def test_an_artifact_records_which_evidence_said_inside(tmp_path):
@@ -1511,3 +1511,76 @@ def test_capabilities_show_exposes_the_whole_evidence_claim():
     assert len(record["validation_profile"]) == 12
     assert record["coverage"]["current_a_cm2"]["points"] == [0.2, 0.3, 0.4]
     assert record["coverage"]["psi"]["points"] == [0.0, 0.3]
+
+
+def test_the_solver_status_claims_only_what_was_tested(tmp_path):
+    """`solver_status=converged` sat beside `current_rel_change=3.49e-4`.
+
+    Only the potential step is checked, so that is what the field says now,
+    with the current's assessment as its own value. Reported in review: the
+    split into two fields is worthless if the first one keeps the old lie.
+    """
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--bias", "0.1", "--output",
+                            str(tmp_path)).stdout)[0]
+    assert record["status"] == "potential-step-converged"
+    provenance = json.loads((tmp_path / record["run_id"]
+                             / "provenance.json").read_text())
+    assert provenance["solver_status"] == "potential-step-converged"
+    assert provenance["current_convergence"].startswith("measured:")
+
+
+def test_an_undefined_current_change_is_null_not_a_number(tmp_path):
+    """Equilibrium published 0.8999 and a one-pass warm start published `inf`,
+    neither of which a machine can tell from a measurement."""
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--bias", "0", "--output",
+                            str(tmp_path)).stdout)[0]
+    assert record["current_rel_change"] is None
+    provenance = json.loads((tmp_path / record["run_id"]
+                             / "provenance.json").read_text())
+    assert provenance["current_convergence"] == "unassessed"
+
+    metrics = json.loads((tmp_path / record["run_id"]
+                          / "metrics.json").read_text())
+    assert metrics["current_rel_change"] is None
+
+
+def test_validation_status_is_metric_aware(tmp_path):
+    """`inside` described bias-envelope membership while the artifact
+    published metrics that envelope says nothing about — a 1D 0.1 V run read
+    `inside` next to `psi=outside`."""
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--bias", "0.1", "--output",
+                            str(tmp_path)).stdout)[0]
+    provenance = json.loads((tmp_path / record["run_id"]
+                             / "provenance.json").read_text())
+    assert provenance["validation_status"] == "partially-covered"
+    assert "psi=outside" in provenance["metric_coverage"]
+
+    covered = json.loads(run("--format", "json", "run", "solve", PN1D,
+                             "--bias", "0", "--output",
+                             str(tmp_path)).stdout)[0]
+    other = json.loads((tmp_path / covered["run_id"]
+                        / "provenance.json").read_text())
+    assert other["validation_status"] in ("fully-covered", "partially-covered")
+
+
+@pytest.mark.parametrize("model", ["pn1d", "pn2d"])
+def test_the_progress_callback_still_works_positionally(model):
+    """A silent API regression I introduced: `current_tol` was inserted in
+    front of `on_iteration`, so an old positional caller passed its callback
+    as a tolerance and it was never invoked — zero calls, no error. Every test
+    used keywords, so nothing caught it. The parameter is gone; this pins the
+    order so it cannot be shifted again."""
+    calls = []
+    if model == "pn1d":
+        from tarhan.models.pn1d import PNDiode1D, solve_bias
+        solve_bias(PNDiode1D(), 0.3, None, 1e-9, 60,
+                   lambda index, total: calls.append(index))
+    else:
+        from tarhan.models.diode2d_mesh import device
+        from tarhan.models.pn2d import solve_bias
+        solve_bias(device(), 0.3, None, 1e-9, 200,
+                   lambda index, total: calls.append(index))
+    assert calls, "the sixth positional argument is no longer the callback"

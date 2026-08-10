@@ -73,6 +73,16 @@ when a release is cut.
   "legacy" rather than refused as damaged.
 - `compare runs` named one-sided metrics only on stderr, so the JSON rows
   carried just the intersection.
+- `solve_bias` gained a `current_tol` parameter positioned in front of
+  `on_iteration`, silently breaking the positional callback API — an old
+  caller's callback was taken as a tolerance and never invoked. The parameter
+  is removed and the argument order is pinned by a test.
+- `solver_status` said `converged` when only the potential step was tested;
+  it is `potential-step-converged` now, with `current_convergence` beside it.
+- `validation_status` said `inside` for bias-envelope membership while the
+  artifact published uncovered metrics; it is metric-aware now.
+- `current_rel_change` published 0.8999 at equilibrium and `inf` for a
+  one-pass warm start; both are `null` with the reason recorded.
 - Every run now records `psi_step` and `current_rel_change`, and provenance
   separates `solver_status` from `validation_status`. The convergence
   *threshold* remains unestablished and is documented as such rather than

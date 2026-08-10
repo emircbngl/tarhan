@@ -269,35 +269,12 @@ def contact_current(dev: PNDiode2D, state, contact: str):
             float(res_p[nodes].sum()) * scale)
 
 
-#: The terminal current's relative change per outer iteration is MEASURED and
-#: recorded. It is deliberately NOT turned into a pass/fail verdict here, and
-#: that is a finding rather than an omission.
-#:
-#: What is established, by measurement:
-#:   2D 0.5 V  1.2e-4 -> 3.0e-8 -> 1.7e-10   (decaying: settling)
-#:   2D 0.2 V  1.1e-5 -> 8.0e-6 -> 7.5e-6    (flat: on a noise floor)
-#:   1D 0.1 V  ~6e-5 at 60 passes, no better at 400
-#: while max|dpsi| reports 1e-14 for all of them. So the potential step is
-#: demonstrably not a claim about the answer, which is the review's point and
-#: it stands.
-#:
-#: What is NOT established is the threshold. Three normalisations were tried:
-#: dividing by |I| breaks at equilibrium, where the net current is an exact
-#: cancellation and the ratio is roundoff over roundoff; dividing by the
-#: differenced components made every bias look settled to 1e-16 and destroyed
-#: the discrimination; and a cancellation cut-off behaved differently in 1D
-#: and 2D for reasons not yet understood. Shipping a boolean on top of any of
-#: those would put a verdict on numbers whose scale nobody has pinned down —
-#: which is the failure this project keeps finding in review.
-#:
-#: So the numbers go into the artifact and the verdict does not exist yet.
-CURRENT_TOL = 1e-6
 
 
 
 def solve_bias(dev: PNDiode2D, v_applied: float, state=None,
                gummel_tol: float = 1e-9, max_gummel: int = 200,
-               current_tol: float = CURRENT_TOL, on_iteration=None):
+               on_iteration=None):
     """Tek bias noktası; ``state=None`` ise dengeden başlar.
 
     ``on_iteration(index, total)`` her Gummel adımından ÖNCE çağrılır. Bütün
@@ -327,7 +304,7 @@ def solve_bias(dev: PNDiode2D, v_applied: float, state=None,
             phi_p[i] = level
 
     previous_current = None
-    current_change = float("inf")
+    current_change = None
     psi_step = float("inf")
     for g in range(max_gummel):
         if on_iteration is not None:
@@ -361,7 +338,23 @@ def solve_bias(dev: PNDiode2D, v_applied: float, state=None,
         # cancellation, so this ratio is roundoff over roundoff and means
         # nothing there — said plainly rather than hidden behind a cut-off
         # nobody can justify.
-        if previous_current is not None and total != 0.0:
+        # None, not a number. On the first pass there is nothing to compare
+        # against; at equilibrium the net current is a cancellation and the
+        # ratio is roundoff over roundoff; with a warm start a single-pass
+        # solve never forms one at all. All three used to publish a float —
+        # 0.8999 at 1D equilibrium, and `inf` for a one-pass solve — which a
+        # machine consumer cannot tell from a measurement. Reported in review.
+        if v_applied == 0.0:
+            # Equilibrium: no applied bias, so there is no net current to
+            # settle and the ratio is roundoff over roundoff. This is the
+            # BOUNDARY CONDITION saying so, not a magnitude threshold — an
+            # earlier attempt used a 1e-10 cancellation cut-off and behaved
+            # differently in 1D and 2D. The artifact published 0.8999 here as
+            # though it were a measurement.
+            current_change = None
+        elif previous_current is None or total == 0.0:
+            current_change = None
+        else:
             current_change = abs(total - previous_current) / abs(total)
         previous_current = total
 

@@ -51,12 +51,14 @@ python3 tools/job.py run tests -- pytest -q
 python3 tools/job.py wait tests
 ```
 
-Measured on an M4: the full suite is **about 80 seconds** (751 collected,
-747 passed, 4 xfail). It was "a few seconds (338 passed)" when that line was
-written and the number was never updated — an instruction to kill a run after
-a minute would now abort a healthy suite. Treat the figure as approximate and
-re-measure rather than trusting it. If it has not finished in **five
-minutes**, something is wrong — do not wait longer, look at the log.
+On an M4 the full suite takes **one to two minutes**. If it has not finished
+in **five minutes**, something is wrong — do not wait longer, look at the log.
+
+There is deliberately no test COUNT here. This line carried one for a long
+time, it went stale three times in a single review cycle (338 → 729 → 747 →
+751 → …), and each time a reviewer had to find it. A number that only ever
+goes out of date is not documentation; run the suite and read the number off
+the bottom of the output.
 
 `tarhan demo` prints its table and exits. It only opens a plot window when
 stdout is a terminal; pass `--show` to force one, `--save out.png` to write the
@@ -225,8 +227,21 @@ whether the solver settled; the second is whether the answer is covered by
 evidence. Both are recorded, along with `psi_step` and `current_rel_change` —
 the terminal current's relative change per outer iteration.
 
-**`solver_status` is still only "the potential settled", and that is a known
-gap, not a claim.** `max|Δψ| < 1e-9` reports ~1e-13 at every bias while the
+`solver_status` is **`potential-step-converged`**, not `converged`: only the
+potential step is tested, and the field says so. `current_convergence` carries
+`unassessed` or `measured:<value>` beside it. `validation_status` is
+**metric-aware** — `fully-covered`, `partially-covered`, `uncovered` or
+`outside-validated-range` — because "inside" described bias-envelope
+membership while the artifact published metrics that envelope says nothing
+about.
+
+`current_rel_change` is **null** where it is undefined: at equilibrium there is
+no net current to settle (the boundary condition says so, not a magnitude
+threshold), and on a single-pass warm start there is nothing to compare with.
+It used to publish 0.8999 and `inf` respectively, which a machine cannot tell
+from a measurement.
+
+**The convergence THRESHOLD is still a known gap, not a claim.** `max|Δψ| < 1e-9` reports ~1e-13 at every bias while the
 current's per-pass change differs by four orders of magnitude between them
 (1D 0.4 V: 1e-10; 1D 0.1 V: 3e-4, no better at 400 iterations). The step is
 demonstrably not a claim about the answer. What is missing is a *threshold*:

@@ -370,3 +370,17 @@ def test_the_validation_profile_changes_when_the_evidence_does():
     assert first != _planned(**dict(base, envelope_basis="other")).validation_profile()
     assert first != _planned(**dict(
         base, coverage=(MetricCoverage("j", (0.2,), "t.py"),))).validation_profile()
+
+
+def test_a_coverage_metric_named_twice_is_refused():
+    """The guard added last round had no regression test — reported in review.
+
+    coverage_report() builds a dict, so the second record silently replaced
+    the first and could turn a measured point into "outside".
+    """
+    from tarhan.capabilities import CapabilityError, MetricCoverage
+
+    with pytest.raises(CapabilityError, match="more than once"):
+        _planned(envelope={"bias_v": ((0.0, 1.0),)}, envelope_basis="synthetic",
+                 coverage=(MetricCoverage("j", (0.1,), "t.py"),
+                           MetricCoverage("j", (0.2,), "t.py")))

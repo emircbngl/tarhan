@@ -414,12 +414,7 @@ def _contact_densities(n_dop_val, delta):
     return delta * delta / p_hat, p_hat
 
 
-#: See pn2d.CURRENT_TOL — one contract, one number.
-CURRENT_TOL = 1e-6
-
-
-def _edge_current(dev: PNDiode1D, x_hat, psi, n_h, p_h,
-                  with_scale: bool = False):
+def _edge_current(dev: PNDiode1D, x_hat, psi, n_h, p_h):
     """Scaled edge current density. Extracted so the convergence check and the
     reported result cannot drift apart: measuring convergence on a quantity
     the caller never sees would be measuring the wrong thing."""
@@ -430,18 +425,12 @@ def _edge_current(dev: PNDiode1D, x_hat, psi, n_h, p_h,
     mu_scale = max(dev.mu_n, dev.mu_p)
     jn = (dev.mu_n / mu_scale) * (n_h[1:] * Bp - n_h[:-1] * Bm) / h
     jp = (dev.mu_p / mu_scale) * (p_h[:-1] * Bp - p_h[1:] * Bm) / h
-    if with_scale:
-        # The drift and diffusion halves, before they cancel. Their size is
-        # the scale a change in the net current has to be judged against.
-        drift_n = (dev.mu_n / mu_scale) * (n_h[1:] * Bp + n_h[:-1] * Bm) / h
-        drift_p = (dev.mu_p / mu_scale) * (p_h[:-1] * Bp + p_h[1:] * Bm) / h
-        return jn + jp, xp.abs(drift_n) + xp.abs(drift_p)
     return jn + jp
 
 
 def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
                gummel_tol: float = 1e-9, max_gummel: int = 60,
-               current_tol: float = CURRENT_TOL, on_iteration=None):
+               on_iteration=None):
     """Tek bias noktası; state=None ise dengeden başlar. Döner: durum sözlüğü.
 
     ``on_iteration(index, total)`` her Gummel dış adımının başında çağrılır.
@@ -485,7 +474,7 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
     p_h = delta * xp.exp(xp.clip(phi_p - psi, -700, 700))
 
     previous_current = None
-    current_change = float("inf")
+    current_change = None
     psi_step = float("inf")
     for g in range(max_gummel):
         if on_iteration is not None:
@@ -515,7 +504,23 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
         total = float(xp.mean(_edge_current(dev, x_hat, psi, n_h, p_h)))
         # See pn2d for why the cancelling case is named rather than normalised.
         # See pn2d: raw, and meaningless at equilibrium by construction.
-        if previous_current is not None and total != 0.0:
+        # None, not a number. On the first pass there is nothing to compare
+        # against; at equilibrium the net current is a cancellation and the
+        # ratio is roundoff over roundoff; with a warm start a single-pass
+        # solve never forms one at all. All three used to publish a float —
+        # 0.8999 at 1D equilibrium, and `inf` for a one-pass solve — which a
+        # machine consumer cannot tell from a measurement. Reported in review.
+        if v_applied == 0.0:
+            # Equilibrium: no applied bias, so there is no net current to
+            # settle and the ratio is roundoff over roundoff. This is the
+            # BOUNDARY CONDITION saying so, not a magnitude threshold — an
+            # earlier attempt used a 1e-10 cancellation cut-off and behaved
+            # differently in 1D and 2D. The artifact published 0.8999 here as
+            # though it were a measurement.
+            current_change = None
+        elif previous_current is None or total == 0.0:
+            current_change = None
+        else:
             current_change = abs(total - previous_current) / abs(total)
         previous_current = total
 
