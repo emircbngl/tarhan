@@ -77,6 +77,10 @@ when a release is cut.
   so a 2D run publishing nine metrics against two records read fully-covered
   and `unverified` was unreachable. Published metrics without a record are
   `unverified` now; the run's own diagnostics are excluded.
+- The outside-validated-range terminal branch still said "the solve
+  converged" — the fix had landed on the inner path only.
+- `min_gummel > max_gummel` was accepted and silently returned fewer
+  iterations than asked for; negative, float and boolean values too.
 - The terminal still printed "converged:" while the artifact said
   `potential-step-converged`.
 - `solve_bias` gained a keyword-only `min_gummel`, so a diagnostic can force

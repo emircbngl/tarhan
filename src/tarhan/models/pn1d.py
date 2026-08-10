@@ -473,6 +473,18 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
     n_h = delta * xp.exp(xp.clip(psi - phi_n, -700, 700))
     p_h = delta * xp.exp(xp.clip(phi_p - psi, -700, 700))
 
+    if (isinstance(min_gummel, bool) or not isinstance(min_gummel, int)
+            or min_gummel < 0):
+        raise ValueError(f"min_gummel={min_gummel!r}: must be a whole number "
+                         ">= 0")
+    if min_gummel > max_gummel:
+        # It silently returned max_gummel iterations, so a diagnostic asking
+        # for a floor quietly got fewer than it asked for — the measurement
+        # path breaking its own contract. Reported in review.
+        raise ValueError(
+            f"min_gummel={min_gummel} exceeds max_gummel={max_gummel}; the "
+            "floor could not be honoured and the solve would silently return "
+            "fewer iterations than asked for")
     previous_current = None
     current_change = None
     current_history = []

@@ -746,7 +746,7 @@ def _statuses(cap, inputs, outside, metrics):
 
 
 def _provenance(cap, runner, *, scenario, outside, inputs, solver_status,
-                validation_status, metric_coverage, 
+                validation_status, metric_coverage,
                 current_convergence="unassessed",
                 candidate_id=None, device_file=None):
     """The evidence fields EVERY run records, wherever it was launched from.
@@ -989,8 +989,8 @@ def _run_solve(out: cliout.Output, args) -> int:
     if outside:
         for line in outside:
             out.note(f"OUTSIDE THE VALIDATED RANGE: {line}")
-        out.note("the solve converged and the artifact is written, but nothing "
-                 "has established that this result is right")
+        out.note("the potential step settled and the artifact is written, but "
+                 "nothing has established that this result is right")
 
     path = artifact.write_run(
         args.output, capability=cap.id, capability_status=cap.status,

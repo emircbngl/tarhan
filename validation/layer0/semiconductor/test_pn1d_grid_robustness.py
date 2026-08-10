@@ -196,33 +196,54 @@ def test_the_current_reaches_a_noise_floor_and_which_floor_depends_on_bias():
     test its own claim.
 
     `min_gummel` exists so a diagnostic can force iterations past that exit.
-    With 119 of them the behaviour is visible and it is not what I described
-    twice before. Neither bias DECAYS. Both reach a noise floor and wander in
-    it indefinitely:
+    Over 119 of them neither bias decays; each settles to a LEVEL and varies
+    within it:
 
-        0.1 V   1e-5 .. 9e-4, still wandering at pass 119
-        0.4 V   1e-10 .. 1e-8, from pass 3 onward
+        0.1 V   ~2e-6 .. 9e-4, median ~2e-4
+        0.4 V   ~1e-10 .. 9e-9, median ~2e-9
 
-    So the finding stands — the potential step says 1e-13 for both while the
-    currents behind them differ by five orders of magnitude — but the honest
-    description is two different noise floors, not "plateau versus decay".
-    This asserts the separation between the floors, which is the part that
-    survives a different machine.
+    Calling those levels "noise floors" is an interpretation and is marked
+    UNVERIFIED — physics_verify is unavailable. What is MEASURED is the
+    separation, about 1e5, while the potential step reports ~1e-13 for both.
+
+    Two things are asserted, because the first alone is not enough: that the
+    levels are separated, and that neither sequence is still falling. A
+    monotonically decaying pair would pass a ratio test while meaning
+    "converging slowly" instead of "stopped improving".
     """
     import statistics
 
     from tarhan.models.pn1d import PNDiode1D, solve_bias
 
     device = PNDiode1D()
+    passes = 119                     # the number the docstring quotes
 
-    def floor(bias):
-        state = solve_bias(device, bias, min_gummel=60, max_gummel=80)
-        history = [x for x in state["current_history"] if x is not None]
-        assert len(history) > 40, "min_gummel did not force the iterations"
-        return statistics.median(history[10:])      # past the transient
+    def history(bias):
+        state = solve_bias(device, bias, min_gummel=passes,
+                           max_gummel=passes + 20)
+        values = [x for x in state["current_history"] if x is not None]
+        assert len(values) >= passes - 1, \
+            f"asked for {passes} iterations and got {len(values)}"
+        return values[10:]           # past the transient
 
-    marginal, settled = floor(0.1), floor(0.4)
-    assert marginal / settled > 100, (
-        f"the two noise floors are {marginal:.1e} and {settled:.1e}, a factor "
-        f"of {marginal / settled:.0f}. They used to differ by ~1e5; if the "
-        "solver improved, replace this with a real convergence gate")
+    marginal, settled = history(0.1), history(0.4)
+
+    # 1. The two levels are separated. This is the finding.
+    separation = statistics.median(marginal) / statistics.median(settled)
+    assert separation > 100, (
+        f"the two levels differ by only {separation:.0f}x; if the solver "
+        "improved, replace this with a real convergence gate")
+
+    # 2. Neither one is still DECAYING. A monotonically shrinking sequence
+    #    would also pass the ratio above while meaning something completely
+    #    different — "converging slowly" rather than "stopped improving" —
+    #    and the previous version of this test could not tell them apart.
+    #    Reported in review. Compared halves rather than endpoints, because a
+    #    single last value is one draw from a wandering band.
+    for name, values in (("0.1 V", marginal), ("0.4 V", settled)):
+        first = statistics.median(values[:len(values) // 2])
+        second = statistics.median(values[len(values) // 2:])
+        assert second > first / 10.0, (
+            f"{name} fell from {first:.1e} to {second:.1e} over the second "
+            "half of the run, so it is still converging rather than sitting "
+            "at a level — re-examine the finding rather than keeping this test")

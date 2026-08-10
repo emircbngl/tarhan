@@ -1619,3 +1619,42 @@ def test_the_terminal_does_not_claim_more_than_the_artifact(tmp_path):
     assert proc.returncode == cliout.EXIT_OK
     assert "converged:" not in proc.stderr
     assert "potential step settled" in proc.stderr
+
+
+def test_the_outside_range_terminal_path_does_not_overclaim_either(tmp_path):
+    """The inner path was fixed and the outside-envelope branch was not.
+
+    A 0.5 V 2D run printed "the solve converged and the artifact is written"
+    beside a status of `potential-step-converged-outside-validated-range` —
+    the same overclaim, on the branch nobody tested. Reported in review, and
+    the second time a fix landed on one of two paths.
+    """
+    proc = run("run", "solve", PN2D, "--bias", "0.5", "--output",
+               str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    assert "OUTSIDE THE VALIDATED RANGE" in proc.stderr
+    assert "the solve converged" not in proc.stderr
+    assert "potential step settled" in proc.stderr
+
+
+@pytest.mark.parametrize("model", ["pn1d", "pn2d"])
+@pytest.mark.parametrize("kwargs", [
+    {"min_gummel": 81, "max_gummel": 80},
+    {"min_gummel": -1},
+    {"min_gummel": 2.5},
+    {"min_gummel": True},
+])
+def test_min_gummel_keeps_its_own_promise(model, kwargs):
+    """It silently returned max_gummel iterations when the floor exceeded the
+    ceiling, so a diagnostic asking for N passes quietly got fewer — the
+    measurement path breaking its own contract."""
+    if model == "pn1d":
+        from tarhan.models.pn1d import PNDiode1D, solve_bias
+        device, bias = PNDiode1D(), 0.1
+    else:
+        from tarhan.models.diode2d_mesh import device as build
+        from tarhan.models.pn2d import solve_bias
+        device, bias = build(), 0.3
+
+    with pytest.raises(ValueError):
+        solve_bias(device, bias, **kwargs)
