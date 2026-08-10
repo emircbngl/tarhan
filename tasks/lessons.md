@@ -123,3 +123,24 @@ onları üreten kaynağa karşı çivileyen bir test şart.
 açıldı ve registry ona karşı çivilendi; envelope da `[0.10, 0.40]` olarak
 düzeltildi. Bunu denetleyen bulmadı — fizik dürüstlük kapısı "bu sayıyı
 doğruladın mı?" diye sorunca ben kontrol ettim ve yanlış çıktı.
+
+## Aynı hatayı, o hatayı çivileyen testin İÇİNDE yaptım (2026-08-10)
+
+**Ne oldu.** Yakınsama bulgusunu kalıcı kılmak için yazdığım test
+`marginal["current_rel_change"] > 1e-5` diyordu. Bu makinede 3.49e-04, ubuntu
+CI'da 4.29e-06 çıktı ve CI kırmızı döndü. Yani eşiği yine tek makinenin ölçtüğü
+sayıya göre kurmuşum — `lessons.md`'de zaten yazılı olan ders, ve o testi
+tanıtan commit mesajında **kendi elimle alıntıladığım** ders.
+
+**Neden tekrarladı.** Bulguyu "0.1 V'ta akım 6e-5 mertebesinde geziniyor" diye
+hatırladım ve bu SAYIYI çiviledim. Oysa bulgu sayı değil, **fark**: bir bias
+yerleşiyor, diğeri yerleşmiyor. Mutlak büyüklük LAPACK'e göre değişir; oran
+değişmez (bu makinede 124667x, ubuntu'da ~4e4).
+
+**Kural.** Bir ölçümü teste çevirirken önce şunu sor: *bulgunun kendisi hangi
+niceliktir?* Mutlak bir değeri ancak bir DEFECT'in üreteceği büyüklükten
+türetebiliyorsan çivile. İki durumu ayırt eden bir bulguysa, aralarındaki ORANI
+çivile — oran, uygulama farklarına karşı dayanıklıdır.
+
+**Uyarı işareti.** Bir testin içine yazdığın sayı, o testin docstring'inde
+"bu makinede ölçüldü" diye geçiyorsa, o sayı muhtemelen assertion'da olmamalı.
