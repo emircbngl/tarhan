@@ -30,8 +30,8 @@ reason plus the condition that would unlock it.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Tuple
+from dataclasses import dataclass, field
+from typing import Mapping, Tuple
 
 #: A capability is in exactly one of these states.
 #:
@@ -111,6 +111,30 @@ class Capability:
     reason: str = ""                       # why it is blocked or merely planned
     needs: str = ""                        # what would unlock it
     does_not_mean: str = ""                # the misreading to head off
+    #: The input range the evidence actually covers, as name -> (low, high).
+    #: MACHINE-READABLE on purpose. A limit written in prose is a limit no run
+    #: can check itself against, and a 0.2 V solve was producing an artifact
+    #: marked `validated` and `converged` while this registry's own prose said
+    #: that very result does not converge. Reported in re-review.
+    envelope: Mapping[str, Tuple[float, float]] = field(default_factory=dict)
+
+    def outside_envelope(self, inputs) -> Tuple[str, ...]:
+        """Which inputs fall outside the range the evidence covers.
+
+        Empty means the run sits inside what was validated. A non-empty result
+        does NOT mean the answer is wrong — it means nothing here has
+        established that it is right, which is a different claim and the one
+        an artifact has to be able to make.
+        """
+        out = []
+        for name, (low, high) in sorted(self.envelope.items()):
+            if name not in inputs:
+                continue
+            value = float(inputs[name])
+            if not (low <= value <= high):
+                out.append(f"{name}={value:g} is outside the validated "
+                           f"[{low:g}, {high:g}]")
+        return tuple(out)
 
     def __post_init__(self) -> None:
         for name in ("domain", "family"):

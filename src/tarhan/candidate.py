@@ -422,7 +422,8 @@ class Judgement:
 
 
 def judge(candidate: Candidate, threshold: Threshold,
-          conditions: Optional[Mapping[str, float]] = None) -> Judgement:
+          conditions: Optional[Mapping[str, float]] = None,
+          require_conditions: bool = False) -> Judgement:
     """Apply one threshold, letting uncertainty refuse to decide.
 
     The interesting case is the third one. If the value's interval straddles
@@ -437,6 +438,17 @@ def judge(candidate: Candidate, threshold: Threshold,
                          f"{threshold.prop} is not recorded for "
                          f"{candidate.identifier}")
 
+    if canonical_unit(threshold.prop) is None and not threshold.unit:
+        # A bare number against an unregistered property means nothing: there
+        # is no canonical unit for it to be implicitly IN. `hardness = 50 cm`
+        # against `hardness >= 100` was a numeric FAIL that could equally have
+        # been a pass in metres. Reported in re-review.
+        return Judgement(
+            threshold, "undecided",
+            f"{threshold.prop} has no canonical unit, so a bare bound of "
+            f"{threshold.bound:g} has no meaning. Write the unit explicitly, "
+            f"matching the candidate's {prop.unit!r}")
+
     if (canonical_unit(threshold.prop) is None and threshold.unit
             and threshold.unit != prop.unit):
         # Like against like, or not at all. Without a conversion table for
@@ -446,6 +458,13 @@ def judge(candidate: Candidate, threshold: Threshold,
             f"{threshold.prop} is recorded in {prop.unit!r} and the bound is "
             f"in {threshold.unit!r}; this property has no unit table, so the "
             "two cannot be compared without inventing a conversion")
+
+    if not conditions and prop.valid_range and require_conditions:
+        return Judgement(
+            threshold, "undecided",
+            f"{threshold.prop} is only stated valid for "
+            f"{', '.join(sorted(prop.valid_range))}, and no condition was "
+            "given; a range nobody supplied a value for cannot be assumed met")
 
     if conditions:
         breaches = [b for b in out_of_range(
@@ -482,7 +501,8 @@ def judge(candidate: Candidate, threshold: Threshold,
     return Judgement(threshold, verdict, detail)
 
 
-def screen(candidates, thresholds, conditions=None) -> Dict[str, Any]:
+def screen(candidates, thresholds, conditions=None,
+           require_conditions: bool = False) -> Dict[str, Any]:
     """Apply every threshold to every candidate. Nothing is dropped silently.
 
     A screen that returns only the survivors hides its own selectivity: you
@@ -494,7 +514,8 @@ def screen(candidates, thresholds, conditions=None) -> Dict[str, Any]:
     thresholds = tuple(thresholds)
     results = []
     for candidate in candidates:
-        judgements = [judge(candidate, t, conditions) for t in thresholds]
+        judgements = [judge(candidate, t, conditions, require_conditions)
+                      for t in thresholds]
         if any(j.verdict == "fail" for j in judgements):
             verdict = "fail"
         elif any(j.verdict == "undecided" for j in judgements):

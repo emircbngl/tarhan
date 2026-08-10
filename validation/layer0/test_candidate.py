@@ -503,12 +503,26 @@ def test_unregistered_properties_are_not_compared_across_units():
     assert judge(candidate, parse_threshold("hardness>=100cm")).verdict == "fail"
 
 
-def test_an_unregistered_property_with_no_bound_unit_still_compares():
-    """A bound with no unit is taken at face value, as before — the refusal is
-    specifically about two DIFFERENT unit strings with no table between them."""
+def test_an_unregistered_property_needs_an_explicit_unit_on_the_bound():
+    """This test asserted the opposite one revision ago, and was wrong.
+
+    I wrote "a bound with no unit is taken at face value, as before", which
+    quietly assumed the bare number was in the candidate's unit. It is not in
+    any unit: an unregistered property has no canonical one for it to be
+    implicitly in, so `hardness = 50 cm` against `hardness >= 100` produced a
+    numeric FAIL that would have been a PASS had the author meant metres.
+    Reported in re-review. Undecided is the only supportable answer, and the
+    message says what to write instead.
+    """
     candidate = Candidate("SYNTH-H", {"hardness": Property(50.0, "Mohs",
                                                            "computed")})
-    assert judge(candidate, parse_threshold("hardness>=10")).verdict == "pass"
+    bare = judge(candidate, parse_threshold("hardness>=10"))
+    assert bare.verdict == "undecided"
+    assert "no canonical unit" in bare.detail
+
+    # Spelled out and matching, it compares.
+    assert judge(candidate,
+                 parse_threshold("hardness>=10Mohs")).verdict == "pass"
 
 
 def test_a_screen_under_a_condition_refuses_to_vote_out_of_range():

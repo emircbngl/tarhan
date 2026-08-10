@@ -528,15 +528,16 @@ def _candidate_screen(out: cliout.Output, args) -> int:
             out.error(f"--at {item}: {raw!r} is not a number")
             return cliout.EXIT_INPUT
 
-    report = cand.screen(candidates, thresholds, conditions or None)
+    # A note was not enough: `--quiet --format json` dropped it and a ranged
+    # property came back a clean PASS. A missing condition is missing
+    # INFORMATION, so the verdict is `undecided` — the same answer this module
+    # already gives for a property nobody recorded. Reported in re-review.
+    report = cand.screen(candidates, thresholds, conditions or None,
+                         require_conditions=True)
     if not conditions and any(p.valid_range for c in candidates
                               for p in c.properties.values()):
-        # valid_range was enforced at solve time and nowhere else, so a
-        # condition-dependent property voted unconditionally in a screen.
-        # Reported in re-review. Saying so beats guessing a condition.
-        out.note("some properties state a validity range; pass --at "
-                 "bias_v=... to screen under a condition rather than "
-                 "unconditionally")
+        out.note("some properties state a validity range and no --at was "
+                 "given, so they are undecided rather than assumed valid")
     rows = []
     for result in report["results"]:
         reasons = [j.detail for j in result["judgements"]
@@ -774,6 +775,18 @@ def _run_solve(out: cliout.Output, args) -> int:
                  "than the run earned")
         return cliout.EXIT_NO_CONVERGENCE
 
+    # A result outside the evidence is not a failure and must not be reported
+    # as one — but it must not be reported as plain `converged` either, which
+    # is what a 0.2 V 2D solve did while the registry's own prose said that
+    # current does not converge. Reported in re-review.
+    outside = cap.outside_envelope(inputs)
+    run_status = "converged-outside-validated-range" if outside else "converged"
+    if outside:
+        for line in outside:
+            out.note(f"OUTSIDE THE VALIDATED RANGE: {line}")
+        out.note("the solve converged and the artifact is written, but nothing "
+                 "has established that this result is right")
+
     path = artifact.write_run(
         args.output, capability=cap.id, capability_status=cap.status,
         inputs=inputs, solver=solver, metrics=metrics,
@@ -793,13 +806,16 @@ def _run_solve(out: cliout.Output, args) -> int:
                     # would otherwise have no way to know the uncertainty went
                     # nowhere. Reported in review.
                     "uncertainty_treatment": "nominal-only",
+                    "validation_envelope": ("inside" if not outside
+                                            else "; ".join(outside)),
                     "scenario": f"single bias {args.bias} V"},
-        status="converged", command=_recorded_command(),
+        status=run_status, command=_recorded_command(),
         version=__version__, fields_data=fields,
         candidate_snapshot=candidate_snapshot,
         report=f"# {cap.id}\n\nbias {args.bias} V\n")
 
-    rows = [{"run_id": path.name, "capability": cap.id, **metrics}]
+    rows = [{"run_id": path.name, "capability": cap.id,
+             "status": run_status, **metrics}]
     out.emit(rows, tuple(rows[0]))
     out.note(f"artifact written to {path}")
     return cliout.EXIT_OK
@@ -846,6 +862,15 @@ def _parse_vary(specs, defaults, out):
                 value = int(token) if _looks_integral(token) else float(token)
             except ValueError:
                 out.error(f"--vary {name}: {token!r} is not a number")
+                return None
+            if not math.isfinite(value):
+                # float("nan") parses happily. The point then failed as an
+                # "invalid-device" — exit 4, a SOLVER failure — and the JSON
+                # carried a bare NaN literal, which is not valid JSON and
+                # breaks the consumer this format exists for. Reported in
+                # re-review. It is bad input, and it is caught before any
+                # solve.
+                out.error(f"--vary {name}: {token!r} is not a finite number")
                 return None
             if value in values:
                 out.error(f"--vary {name}: {token} appears twice")
@@ -953,7 +978,10 @@ def _run_sweep(out: cliout.Output, args) -> int:
             forge.tick(within=(index + 1) / len(points),
                        detail=f"point {index + 1}/{len(points)}")
 
-            row = {**point, "status": "converged", "run_id": ""}
+            row = {**point,
+                   "status": ("converged-outside-validated-range"
+                              if cap.outside_envelope(inputs) else "converged"),
+                   "run_id": ""}
             try:
                 metrics, fields = runner.solve({**inputs, **solver})
             except ValueError as exc:
@@ -976,7 +1004,7 @@ def _run_sweep(out: cliout.Output, args) -> int:
                 inputs=inputs, solver=solver, metrics=metrics,
                 provenance={"model": cap.source, "device": runner.describe,
                             "scenario": f"sweep point {point}"},
-                status="converged", command=_recorded_command(),
+                status=row["status"], command=_recorded_command(),
                 version=__version__, fields_data=fields,
                 report=f"# {cap.id}\n\nsweep point {point}\n")
             row["run_id"] = path.name

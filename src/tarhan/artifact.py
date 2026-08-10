@@ -480,6 +480,22 @@ def read_run(path) -> Dict[str, Any]:
     else:
         integrity = "verified"
         actual = checksums(path)
+        # SET EQUALITY, not iteration over what the manifest happens to list.
+        # Iterating `recorded_files` meant deleting an entry deleted its check:
+        # drop metrics.json from the map, rewrite the metrics, and read_run
+        # reported "verified" over a forged result. Reported in re-review, and
+        # it is the same shape as the legacy hole — a missing record read as
+        # "nothing to check" rather than as damage.
+        missing = sorted(set(recorded_files) - set(actual))
+        extra = sorted(set(actual) - set(recorded_files))
+        if missing:
+            raise ArtifactError(
+                f"{path}: {missing} recorded in the manifest but absent")
+        if extra:
+            raise ArtifactError(
+                f"{path}: {extra} present but not recorded in the manifest; "
+                "either the manifest lost an entry or a file was added after "
+                "the run")
         for name, digest in recorded_files.items():
             if name not in actual:
                 raise ArtifactError(f"{path}: {name} is recorded but missing")

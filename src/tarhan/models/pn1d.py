@@ -62,6 +62,12 @@ def estimated_nodes(length: float, h0: float, gamma: float) -> float:
     # step still costs a node. Measured against build_grid across six (h0,
     # gamma) pairs: without these the estimate under-counted by one or two,
     # which is nothing at the limit but is still arithmetic that was wrong.
+    if not math.isfinite(steps):
+        # gamma=1e308 makes the intermediate infinite and math.ceil then raises
+        # OverflowError, which the CLI reports as exit 5 — OUR bug — for what
+        # is a user's number. Reported in re-review. Returning infinity lets
+        # the caller's own limit refuse it as input.
+        return math.inf
     return math.ceil(steps) + 1
 
 
@@ -112,7 +118,7 @@ class PNDiode1D:
                 "never reaches the contact")
         estimate = sum(estimated_nodes(side, self.h0, self.gamma)
                        for side in (self.len_p, self.len_n))
-        if estimate > MAX_GRID_NODES:
+        if not math.isfinite(estimate) or estimate > MAX_GRID_NODES:
             raise ValueError(
                 f"h0={self.h0:g} with gamma={self.gamma:g} needs about "
                 f"{estimate:.3g} nodes for this device, over the "

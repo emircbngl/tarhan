@@ -78,7 +78,7 @@ class RectangularDiode2D:
         columns = sum(estimated_nodes(side, self.h0, self.gamma)
                       for side in (self.len_p, self.len_n))
         total = columns * (int(self.ny) + 1)
-        if total > MAX_GRID_NODES:
+        if not math.isfinite(total) or total > MAX_GRID_NODES:
             raise MeshError(
                 f"h0={self.h0:g}, gamma={self.gamma:g} and ny={self.ny} need "
                 f"about {total:.3g} nodes, over the {MAX_GRID_NODES:,} limit")

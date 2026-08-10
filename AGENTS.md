@@ -200,6 +200,14 @@ A capability that is validated but has no runner exits `3` saying so — being
 proven and being wired up are different facts. Both transient capabilities are
 in that state: there is no bias waveform to give them.
 
+**A run says whether it is inside the evidence.** Capability records carry a
+machine-readable `envelope` (2D steady: `bias_v` in [0.30, 0.50]). A solve
+outside it still runs and still writes an artifact — but its status is
+`converged-outside-validated-range`, not `converged`, and provenance records
+which input was outside. Outside the envelope does not mean the answer is
+wrong; it means nothing has established that it is right, and those are
+different claims.
+
 A run leaves `runs/<problem-id>-<build-id>/` behind: `manifest.json`,
 `input.lock.toml`, `provenance.json`, `metrics.json`, `fields.npz`,
 `stdout.log`, `report.md`. The **problem id** hashes the capability, the fully

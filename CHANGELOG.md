@@ -73,6 +73,19 @@ when a release is cut.
   "legacy" rather than refused as damaged.
 - `compare runs` named one-sided metrics only on stderr, so the JSON rows
   carried just the intersection.
+- A solve outside a capability's validated range wrote `status=converged`
+  with no signal; capabilities now carry a machine-readable `envelope` and the
+  run records `converged-outside-validated-range`.
+- Deleting one entry from a manifest's checksum map disabled that file's check,
+  so a forged `metrics.json` read back as `verified`. Verification now requires
+  the recorded set and the directory to match exactly.
+- `--vary bias_v=nan` was accepted, failed as a solver error, and emitted a
+  bare `NaN` into the JSON stdout.
+- An unconditioned screen of a ranged property returned PASS; the warning was a
+  stderr note that `--quiet` dropped. It is `undecided` now.
+- A bare threshold against a property with no canonical unit compared raw
+  numbers; it needs an explicit matching unit.
+- `gamma=1e308` raised `OverflowError` and exited 5 instead of refusing input.
 - `valid_range` was enforced at solve time only; `candidate screen --at
   bias_v=...` now screens under a condition, and an unconditioned screen of
   ranged properties says so.

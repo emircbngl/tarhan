@@ -138,6 +138,8 @@ REGISTRY: Tuple[Capability, ...] = (
                 "rectangular diode shape", "net doping",
                 "contact node sets", "bias"),
         produces=("psi, n, p on the mesh", "contact currents", "I-V sweep"),
+        # The prose limit below, in a form a run can check itself against.
+        envelope={"bias_v": (0.30, 0.50)},
         limits=("the terminal HOLE current is only reproducible above about "
                 "0.3 V; at 0.2 V it wanders by a few percent with the "
                 "platform and with the convergence tolerance, so an I-V claim "

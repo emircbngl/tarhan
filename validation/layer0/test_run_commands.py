@@ -1182,3 +1182,117 @@ def test_an_unknown_condition_is_refused(tmp_path):
                "--at", "temperature_k=300", "--require", "mu_n>=1")
     assert proc.returncode == cliout.EXIT_INPUT
     assert "not a condition a run reports" in proc.stderr
+
+
+# --- the third audit ------------------------------------------------------
+
+def test_a_run_outside_the_validated_range_says_so(tmp_path):
+    """A 0.2 V 2D solve wrote `status=converged`, `capability_status=validated`
+    and no signal at all, while the registry's own prose said that hole
+    current does not converge. Prose no run can check itself against is not a
+    limit."""
+    inside = json.loads(run("--format", "json", "run", "solve", PN2D,
+                            "--bias", "0.4", "--output",
+                            str(tmp_path)).stdout)[0]
+    assert inside["status"] == "converged"
+
+    outside = json.loads(run("--format", "json", "run", "solve", PN2D,
+                             "--bias", "0.2", "--output",
+                             str(tmp_path)).stdout)[0]
+    assert outside["status"] == "converged-outside-validated-range"
+
+    provenance = json.loads((tmp_path / outside["run_id"]
+                             / "provenance.json").read_text())
+    assert "outside the validated" in provenance["validation_envelope"]
+    manifest = json.loads((tmp_path / outside["run_id"]
+                           / "manifest.json").read_text())
+    assert manifest["status"] == "converged-outside-validated-range"
+
+
+def test_the_envelope_warning_reaches_a_human_too(tmp_path):
+    proc = run("run", "solve", PN2D, "--bias", "0.2", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    assert "OUTSIDE THE VALIDATED RANGE" in proc.stderr
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_a_non_finite_sweep_value_is_input_not_a_solver_failure(tmp_path,
+                                                                value):
+    """`--vary bias_v=nan,0.2` was accepted: the point then failed as an
+    "invalid-device" (exit 4, a SOLVER failure) and the JSON carried a bare
+    NaN literal, which is not valid JSON and breaks the consumer the format
+    exists for."""
+    out_dir = tmp_path / "runs"
+    proc = run("run", "sweep", PN1D, "--vary", f"bias_v={value},0.2",
+               "--output", str(out_dir))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "finite" in proc.stderr
+    assert not out_dir.exists()
+
+
+def test_sweep_json_is_always_parseable(tmp_path):
+    """The guard above exists to protect this property."""
+    proc = run("--format", "json", "run", "sweep", PN1D,
+               "--vary", "bias_v=0.2,0.3", "--output", str(tmp_path))
+    json.loads(proc.stdout)          # would raise on a bare NaN
+    assert "NaN" not in proc.stdout
+
+
+def test_an_unconditioned_screen_is_undecided_not_a_pass(tmp_path):
+    """A stderr note was not enough: --quiet --format json dropped it and a
+    ranged property came back a clean PASS."""
+    path = tmp_path / "ranged.toml"
+    path.write_text(
+        "[SYNTH-R]\n[SYNTH-R.properties.mu_n]\nvalue = 2000.0\n"
+        'unit = "cm^2/Vs"\nbasis = "computed"\n'
+        "valid_range = { bias_v = [0.0, 0.5] }\n", encoding="utf-8")
+
+    proc = run("--quiet", "--format", "json", "candidate", "screen",
+               "--from", str(path), "--require", "mu_n>=1000")
+    assert proc.returncode == cliout.EXIT_OK
+    rows = json.loads(proc.stdout)
+    assert rows[0]["verdict"] == "undecided"
+    assert "no condition was given" in rows[0]["why"]
+
+
+def test_dropping_a_checksum_entry_does_not_disable_the_check(tmp_path):
+    """The integrity hole: verification iterated the RECORDED map, so deleting
+    an entry deleted its check. Drop metrics.json from the map, rewrite the
+    metrics, and read_run reported `verified` over a forged result."""
+    from tarhan import artifact
+
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--output", str(tmp_path)).stdout)[0]
+    directory = tmp_path / record["run_id"]
+    manifest_path = directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    del manifest["files"]["metrics.json"]
+    manifest_path.write_text(json.dumps(manifest))
+    (directory / "metrics.json").write_text('{"current_a_cm2": 999.0}')
+
+    with pytest.raises(artifact.ArtifactError, match="not recorded"):
+        artifact.read_run(directory)
+
+
+def test_a_file_added_after_the_run_is_caught(tmp_path):
+    """The same set-equality check from the other side."""
+    from tarhan import artifact
+
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--output", str(tmp_path)).stdout)[0]
+    (tmp_path / record["run_id"] / "extra.txt").write_text("added later")
+    with pytest.raises(artifact.ArtifactError, match="not recorded"):
+        artifact.read_run(tmp_path / record["run_id"])
+
+
+@pytest.mark.parametrize("gamma", ["1e308", "inf"])
+def test_an_overflowing_grid_estimate_is_input_not_internal(tmp_path, gamma):
+    """gamma=1e308 made the intermediate infinite and math.ceil raised
+    OverflowError, which the CLI reported as exit 5 — OUR bug — for a number
+    the user typed."""
+    spec = tmp_path / "device.toml"
+    spec.write_text(f"gamma = {gamma}\n", encoding="utf-8")
+    proc = run("run", "solve", PN1D, "--device", str(spec),
+               "--output", str(tmp_path / "runs"))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert proc.returncode != cliout.EXIT_INTERNAL

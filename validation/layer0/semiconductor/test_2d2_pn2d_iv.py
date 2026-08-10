@@ -173,3 +173,42 @@ def test_the_lowest_bias_is_recorded_as_unreliable_rather_than_dropped(results):
     assert t[1] / d[1] == pytest.approx(1.0, rel=0.10), \
         "the hole current has moved beyond the wander this documents"
     assert t[2] / d[2] == pytest.approx(1.0, rel=0.10)
+
+
+def test_the_reliable_biases_do_not_move_when_the_criterion_tightens():
+    """The measurement behind RELIABLE_VOLTS, run rather than quoted.
+
+    The table in the comment above was evidence nobody could re-derive without
+    redoing the experiment by hand — reported in re-review as "the tolerance
+    sweep is only a comment". This runs it.
+
+    The rule it enforces is the one the 0.2 V failure taught: a quantity is
+    determined only if the answer stops moving as the convergence criterion
+    tightens. Each retained bias must move by less than its own comparison
+    bound, or that bound is tracking the noise floor rather than the physics.
+
+    Slow — four extra bias ramps — but this is the check that decides whether
+    a published range is real, and it belongs where it can fail.
+    """
+    from tarhan.models.pn2d import solve_bias
+
+    results = compare_iv()
+    device, devsim = results["device"], results["devsim"]
+    bound = {0.30: 2e-3, 0.40: 1e-4, 0.50: 1e-4}
+
+    seen = {v: [] for v in RELIABLE_VOLTS}
+    for tol in (1e-9, 1e-11, 1e-13):
+        state = None
+        for v in results["ramp"]:
+            state = solve_bias(device, v, state=state, gummel_tol=tol,
+                               max_gummel=400)
+            key = round(float(v), 4)
+            if key in seen:
+                seen[key].append(state["i_p"] / devsim[key][1])
+
+    for v in RELIABLE_VOLTS:
+        spread = max(seen[v]) - min(seen[v])
+        assert spread < bound[v], (
+            f"I_p at {v} V moves by {spread:.2e} as gummel_tol goes 1e-9 to "
+            f"1e-13, which is not inside its own {bound[v]:.0e} comparison "
+            "bound. Either the bound is tracking noise or something regressed")
