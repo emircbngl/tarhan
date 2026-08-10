@@ -37,6 +37,19 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: BLAS/LAPACK for DEVSIM
+        # DEVSIM's linux wheel dlopen()s the math libraries at import time and
+        # the runner ships none, so `import devsim` died with
+        # `Loading "libopenblas.so": MISSING DLL`. The -dev packages are what
+        # provide the UNVERSIONED .so symlinks DEVSIM searches for by name;
+        # the runtime packages only give libopenblas.so.0 and would not be
+        # found. Discovered by the first real run of this workflow — the
+        # workflow itself had never been exercised, which is its own lesson.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev liblapack-dev
+          ldconfig -p | grep -E 'libopenblas\.so|liblapack\.so|libblas\.so' || true
+
       - name: Install with the oracle extra
         run: python -m pip install -e ".[dev,oracle]"
 
