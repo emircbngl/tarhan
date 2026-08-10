@@ -35,6 +35,9 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
+from tarhan.models.pn1d import (MAX_GRID_NODES,  # noqa: E402
+                                estimated_nodes)
+
 
 class MeshError(ValueError):
     """A mesh request that cannot produce a usable device."""
@@ -69,6 +72,16 @@ class RectangularDiode2D:
             raise MeshError(f"gamma={self.gamma}: must be >= 1")
         if int(self.ny) != self.ny or self.ny < 1:
             raise MeshError(f"ny={self.ny}: must be a positive integer")
+        # The same bound as the 1D grid, applied to the PRODUCT: a modest nx
+        # and a large ny multiply into a mesh nothing can build. Estimated
+        # before any of it is allocated.
+        columns = sum(estimated_nodes(side, self.h0, self.gamma)
+                      for side in (self.len_p, self.len_n))
+        total = columns * (int(self.ny) + 1)
+        if total > MAX_GRID_NODES:
+            raise MeshError(
+                f"h0={self.h0:g}, gamma={self.gamma:g} and ny={self.ny} need "
+                f"about {total:.3g} nodes, over the {MAX_GRID_NODES:,} limit")
 
     def x_nodes(self) -> np.ndarray:
         """Junction at x=0, geometric growth outward. Mirrors PNDiode1D."""

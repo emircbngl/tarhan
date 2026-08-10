@@ -329,6 +329,32 @@ def device_overrides(candidate: Candidate,
             for name in MATERIAL_PARAMETERS[capability_id]}
 
 
+def snapshot(candidate: Candidate) -> Dict[str, Any]:
+    """The whole candidate as plain data, in canonical units.
+
+    The artifact recorded the identifier and a 12-character fingerprint and
+    nothing else, so composition, structure, and every property's source,
+    basis, unit, uncertainty and validity range lived only in the user's file.
+    Move or edit that file and the run could no longer say what it was based
+    on — while still carrying a fingerprint that implied it could. Reported in
+    re-review. This is what gets written next to the result and checksummed
+    with it.
+    """
+    return {"identifier": candidate.identifier,
+            "composition": candidate.composition,
+            "structure": candidate.structure,
+            "dimensionality": candidate.dimensionality,
+            "notes": candidate.notes,
+            "fingerprint": fingerprint(candidate),
+            "properties": {
+                name: {"value": prop.value, "unit": prop.unit,
+                       "basis": prop.basis, "uncertainty": prop.uncertainty,
+                       "source": prop.source,
+                       "valid_range": {k: list(v)
+                                       for k, v in prop.valid_range.items()}}
+                for name, prop in sorted(candidate.properties.items())}}
+
+
 def fingerprint(candidate: Candidate) -> str:
     """A hash of everything the candidate CLAIMS, not just what it computes to.
 
@@ -395,7 +421,8 @@ class Judgement:
     detail: str
 
 
-def judge(candidate: Candidate, threshold: Threshold) -> Judgement:
+def judge(candidate: Candidate, threshold: Threshold,
+          conditions: Optional[Mapping[str, float]] = None) -> Judgement:
     """Apply one threshold, letting uncertainty refuse to decide.
 
     The interesting case is the third one. If the value's interval straddles
@@ -409,6 +436,26 @@ def judge(candidate: Candidate, threshold: Threshold) -> Judgement:
         return Judgement(threshold, "undecided",
                          f"{threshold.prop} is not recorded for "
                          f"{candidate.identifier}")
+
+    if (canonical_unit(threshold.prop) is None and threshold.unit
+            and threshold.unit != prop.unit):
+        # Like against like, or not at all. Without a conversion table for
+        # this property the only safe comparison is an identical unit string.
+        return Judgement(
+            threshold, "undecided",
+            f"{threshold.prop} is recorded in {prop.unit!r} and the bound is "
+            f"in {threshold.unit!r}; this property has no unit table, so the "
+            "two cannot be compared without inventing a conversion")
+
+    if conditions:
+        breaches = [b for b in out_of_range(
+            Candidate(candidate.identifier, {threshold.prop: prop}), conditions)]
+        if breaches:
+            # A property outside its stated validity does not describe the
+            # material under these conditions, so it cannot support a verdict
+            # about them. Previously `screen` had no notion of conditions at
+            # all and every such property voted unconditionally.
+            return Judgement(threshold, "undecided", breaches[0])
 
     low, high = prop.interval
     if threshold.op == ">=":
@@ -435,7 +482,7 @@ def judge(candidate: Candidate, threshold: Threshold) -> Judgement:
     return Judgement(threshold, verdict, detail)
 
 
-def screen(candidates, thresholds) -> Dict[str, Any]:
+def screen(candidates, thresholds, conditions=None) -> Dict[str, Any]:
     """Apply every threshold to every candidate. Nothing is dropped silently.
 
     A screen that returns only the survivors hides its own selectivity: you
@@ -447,7 +494,7 @@ def screen(candidates, thresholds) -> Dict[str, Any]:
     thresholds = tuple(thresholds)
     results = []
     for candidate in candidates:
-        judgements = [judge(candidate, t) for t in thresholds]
+        judgements = [judge(candidate, t, conditions) for t in thresholds]
         if any(j.verdict == "fail" for j in judgements):
             verdict = "fail"
         elif any(j.verdict == "undecided" for j in judgements):
@@ -468,7 +515,7 @@ _CANDIDATE_FIELDS = {"properties", "composition", "structure",
                      "dimensionality", "notes"}
 
 
-def _no_duplicates(pairs):
+def no_duplicate_keys(pairs):
     """Refuse a JSON object that names the same key twice.
 
     ``json.loads`` keeps the LAST value silently, so a file listing mu_n twice
@@ -516,7 +563,7 @@ def load_candidates(path) -> Tuple[Candidate, ...]:
     path = Path(path)
     raw = path.read_bytes()
     if path.suffix.lower() == ".json":
-        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicate_keys)
     elif path.suffix.lower() == ".toml":
         doc = tomllib.loads(raw.decode("utf-8"))
     else:
@@ -576,10 +623,18 @@ def parse_threshold(text: str) -> Threshold:
             except ValueError:
                 raise CandidateError(
                     f"{text!r}: {rest!r} is not a number") from None
+            canonical = canonical_unit(name)
             if unit:
+                if canonical is None:
+                    # An unregistered property has no canonical unit, so there
+                    # is nothing to convert INTO and no way to know that "cm"
+                    # and "m" are related. Comparing them as bare numbers gave
+                    # `hardness = 50 cm` a PASS against `hardness >= 1 m`.
+                    # Reported in re-review. The bound keeps its unit and
+                    # `judge` requires the candidate to state the same one.
+                    return Threshold(name, op, bound, unit=unit)
                 bound = to_canonical(name, bound, unit)
-            return Threshold(name, op, bound,
-                             unit=canonical_unit(name) or unit)
+            return Threshold(name, op, bound, unit=canonical or "")
     raise CandidateError(
         f"{text!r}: expected NAME>=VALUE or NAME<=VALUE. A hard screen is a "
         "bound; anything softer belongs in ranking")

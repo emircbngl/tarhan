@@ -217,3 +217,18 @@ def test_the_same_scalars_give_the_same_mesh(spec):
     assert first["triangles"] == second["triangles"]
     assert np.array_equal(first["net_doping"], second["net_doping"])
     assert first["contacts"] == second["contacts"]
+
+
+def test_a_mesh_too_large_to_build_is_refused_before_it_is_built():
+    """The progress guard only caught a walk that stopped entirely.
+
+    h0=1e-12 with gamma=1 walks toward hundreds of millions of nodes, making
+    progress the whole way, and never returns — reported in re-review as a
+    hang in both 1D and 2D. The node count is now estimated from the geometric
+    series before anything is allocated.
+    """
+    with pytest.raises(MeshError, match="over the"):
+        RectangularDiode2D(h0=1e-12, gamma=1.0)
+    with pytest.raises(MeshError, match="over the"):
+        RectangularDiode2D(ny=10_000_000)
+    RectangularDiode2D()          # the ordinary device is nowhere near it

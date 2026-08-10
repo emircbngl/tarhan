@@ -37,6 +37,28 @@ from tarhan.numerics.flux import bernoulli
 from tarhan.numerics.transient import integrate_stiff
 
 
+#: A grid this size is not a fine mesh, it is a hang. The bound is arbitrary in
+#: value and not in kind: a 1D device runs at ~125 nodes and a deliberately
+#: fine one at ~1200, so anything approaching this is a typo in h0 rather than
+#: an intention. Reported in re-review, where h0=1e-12 with gamma=1 walked
+#: toward hundreds of millions of nodes and never returned.
+MAX_GRID_NODES = 2_000_000
+
+
+def estimated_nodes(length: float, h0: float, gamma: float) -> float:
+    """How many steps the geometric walk will take, WITHOUT taking them.
+
+    Arithmetic on the geometric series, not physics: the walk covers
+    h0*(gamma^n - 1)/(gamma - 1) after n steps, so reaching `length` needs
+    n >= log(1 + (gamma-1)*length/h0) / log(gamma), and n = length/h0 when
+    gamma is exactly 1. Computing it up front is the difference between an
+    error message and a process nobody can interrupt.
+    """
+    if gamma == 1.0:
+        return length / h0
+    return math.log1p((gamma - 1.0) * length / h0) / math.log(gamma)
+
+
 @dataclass
 class PNDiode1D:
     """Vaka girdileri — sabitler ASLA hardcode edilmez (konvansiyon-tuzağı kuralı)."""
@@ -82,6 +104,15 @@ class PNDiode1D:
             raise ValueError(
                 f"gamma={self.gamma}: must be finite and >= 1, or the grid "
                 "never reaches the contact")
+        estimate = sum(estimated_nodes(side, self.h0, self.gamma)
+                       for side in (self.len_p, self.len_n))
+        if estimate > MAX_GRID_NODES:
+            raise ValueError(
+                f"h0={self.h0:g} with gamma={self.gamma:g} needs about "
+                f"{estimate:.3g} nodes for this device, over the "
+                f"{MAX_GRID_NODES:,} limit. The progress guard below only "
+                "catches a walk that stops entirely; this catches one that "
+                "merely never finishes.")
         self.C0 = max(self.Na, self.Nd)
         self.delta = self.ni / self.C0
         self.L_D = math.sqrt(self.eps_s * self.ut / (self.q * self.C0))

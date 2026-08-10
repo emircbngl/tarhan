@@ -28,7 +28,7 @@ import pytest
 from tarhan.candidate import (BASES, Candidate, CandidateError, Property,
                               Threshold, applicability, device_overrides,
                               fingerprint, judge, load_candidates, out_of_range,
-                              parse_threshold, screen)
+                              parse_threshold, screen, snapshot)
 
 PN1D = "semiconductor.pn.drift-diffusion.1d.steady"
 
@@ -484,3 +484,64 @@ def test_a_json_key_given_twice_is_refused(tmp_path):
                     '"basis": "computed"}}}}', encoding="utf-8")
     with pytest.raises(CandidateError, match="given twice"):
         load_candidates(path)
+
+
+# --- the re-audit ---------------------------------------------------------
+
+def test_unregistered_properties_are_not_compared_across_units():
+    """`hardness = 50 cm` PASSED against `hardness >= 1 m`.
+
+    Not a physics judgement — a software one: with no conversion table for an
+    unregistered property there is nothing to convert INTO, and comparing the
+    bare numbers is the only thing that could have produced that verdict.
+    """
+    candidate = Candidate("SYNTH-H", {"hardness": Property(50.0, "cm",
+                                                           "computed")})
+    assert judge(candidate, parse_threshold("hardness>=1m")).verdict == \
+        "undecided"
+    assert judge(candidate, parse_threshold("hardness>=1cm")).verdict == "pass"
+    assert judge(candidate, parse_threshold("hardness>=100cm")).verdict == "fail"
+
+
+def test_an_unregistered_property_with_no_bound_unit_still_compares():
+    """A bound with no unit is taken at face value, as before — the refusal is
+    specifically about two DIFFERENT unit strings with no table between them."""
+    candidate = Candidate("SYNTH-H", {"hardness": Property(50.0, "Mohs",
+                                                           "computed")})
+    assert judge(candidate, parse_threshold("hardness>=10")).verdict == "pass"
+
+
+def test_a_screen_under_a_condition_refuses_to_vote_out_of_range():
+    ranged = Candidate("SYNTH-R", {"mu_n": Property(
+        2000.0, "cm^2/Vs", "computed", valid_range={"bias_v": [0.0, 0.5]})})
+    threshold = parse_threshold("mu_n>=1000")
+    assert judge(ranged, threshold, {"bias_v": 0.3}).verdict == "pass"
+    assert judge(ranged, threshold, {"bias_v": 0.9}).verdict == "undecided"
+    assert judge(ranged, threshold).verdict == "pass"     # unconditioned
+
+
+def test_the_snapshot_carries_what_the_fingerprint_only_implies():
+    """The artifact kept an id and a 12-character hash. Neither can reconstruct
+    a basis, a source or an uncertainty once the source file is gone."""
+    candidate = Candidate(
+        "SYNTH-A", {"mu_n": Property(1000.0, "cm^2/Vs", "measured",
+                                     source="synthetic", uncertainty=50.0,
+                                     valid_range={"bias_v": [0.0, 0.5]})},
+        composition="SyntheticA", structure="cubic")
+    snap = snapshot(candidate)
+    assert snap["identifier"] == "SYNTH-A"
+    assert snap["composition"] == "SyntheticA"
+    assert snap["structure"] == "cubic"
+    assert snap["fingerprint"] == fingerprint(candidate)
+    mu_n = snap["properties"]["mu_n"]
+    assert mu_n == {"value": 1000.0, "unit": "cm^2/Vs", "basis": "measured",
+                    "uncertainty": 50.0, "source": "synthetic",
+                    "valid_range": {"bias_v": [0.0, 0.5]}}
+
+
+def test_the_snapshot_is_json_serialisable():
+    """It is written to disk and checksummed; a value that cannot be dumped
+    would fail at the worst moment, after the solve."""
+    snap = snapshot(Candidate("SYNTH-A", {"mu_n": Property(1000.0, "cm^2/Vs",
+                                                           "computed")}))
+    assert json.loads(json.dumps(snap)) == snap

@@ -52,6 +52,30 @@ when a release is cut.
   materialised before any solve began.
 - `read_run` kept parsing artifacts from a newer schema than it understands.
 - Duplicate JSON keys in candidate and device files silently kept the last.
+  (The device half of this was claimed here before it was true, and fixed in
+  the following commit — the entry is left standing as a reminder that a
+  changelog is a claim like any other.)
+- `hardness = 50 cm` passed a `hardness >= 1 m` threshold: properties outside
+  the unit table were compared as bare numbers. They now require an identical
+  unit string, since there is no table to convert through.
+- A very small `h0` walked toward hundreds of millions of grid nodes without
+  ever stalling, so the progress guard never fired. The node count is now
+  estimated from the geometric series before anything is allocated, in 1D and
+  in 2D, and `ny` is bounded with it.
+- A candidate-driven run recorded only an id and a short fingerprint, so the
+  evidence lived in the user's file; moving it left the run unable to say what
+  it rested on. A checksummed `candidate.lock.json` now travels with the result.
+- `candidate show` emitted identity and fingerprint as stderr notes, so
+  `--format json --quiet` lost them.
+- A failed write left a hidden staging directory behind; cleanup covered only
+  the rename.
+- A current-schema manifest with its checksum map removed was accepted as
+  "legacy" rather than refused as damaged.
+- `compare runs` named one-sided metrics only on stderr, so the JSON rows
+  carried just the intersection.
+- `valid_range` was enforced at solve time only; `candidate screen --at
+  bias_v=...` now screens under a condition, and an unconditioned screen of
+  ranged properties says so.
 
 ## [0.2.0] — 2026-08-07
 

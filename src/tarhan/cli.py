@@ -201,7 +201,15 @@ def _load_device_spec(path):
     path = Path(path)
     raw = path.read_bytes()
     if path.suffix.lower() == ".json":
-        spec = json.loads(raw.decode("utf-8"))
+        # The SAME hook the candidate loader uses. Fixing duplicate keys there
+        # and not here left `{"mu_n": 1000, "mu_n": 5}` silently becoming 5 —
+        # and worse, the CHANGELOG claimed both loaders refused it. A false
+        # entry in a user-facing document is a worse defect than the gap it
+        # described. Reported in re-review.
+        from tarhan.candidate import no_duplicate_keys
+
+        spec = json.loads(raw.decode("utf-8"),
+                          object_pairs_hook=no_duplicate_keys)
     elif path.suffix.lower() == ".toml":
         spec = tomllib.loads(raw.decode("utf-8"))
     else:
@@ -464,17 +472,23 @@ def _candidate_show(out: cliout.Output, args) -> int:
                      "valid_range": "; ".join(
                          f"{k} in [{v[0]:g}, {v[1]:g}]"
                          for k, v in sorted(prop.valid_range.items()))})
-    out.emit(rows, ("property", "value", "unit", "basis", "uncertainty",
-                    "low", "high", "source", "valid_range"))
-    # The identity is part of the evidence package the docstring claims, and
-    # it was the part the CLI never printed.
-    for label, value in (("composition", match.composition),
-                         ("structure", match.structure),
-                         ("dimensionality", match.dimensionality),
-                         ("notes", match.notes)):
-        if value:
-            out.note(f"{label}: {value}")
-    out.note(f"fingerprint: {_candidate_fingerprint(match)}")
+    # The identity went out as stderr NOTES, so `--format json --quiet` lost
+    # it entirely and the "whole record" claim held only for humans reading a
+    # terminal. Reported in re-review. It is rows now, like everything else.
+    identity = [{"property": f"@{label}", "value": value, "unit": "",
+                 "basis": "", "uncertainty": "", "low": "", "high": "",
+                 "source": "", "valid_range": ""}
+                for label, value in (
+                    ("identifier", match.identifier),
+                    ("composition", match.composition),
+                    ("structure", match.structure),
+                    ("dimensionality", match.dimensionality),
+                    ("notes", match.notes),
+                    ("fingerprint", _candidate_fingerprint(match)))
+                if value]
+    out.emit(identity + rows,
+             ("property", "value", "unit", "basis", "uncertainty",
+              "low", "high", "source", "valid_range"))
     return cliout.EXIT_OK
 
 
@@ -500,7 +514,29 @@ def _candidate_screen(out: cliout.Output, args) -> int:
         out.error(str(exc))
         return cliout.EXIT_INPUT
 
-    report = cand.screen(candidates, thresholds)
+    conditions = {}
+    for item in args.at:
+        name, _, raw = item.partition("=")
+        name = name.strip()
+        if name not in cand.CONDITIONS:
+            out.error(f"--at {name}: not a condition a run reports. "
+                      f"Known: {', '.join(cand.CONDITIONS)}")
+            return cliout.EXIT_INPUT
+        try:
+            conditions[name] = float(raw)
+        except ValueError:
+            out.error(f"--at {item}: {raw!r} is not a number")
+            return cliout.EXIT_INPUT
+
+    report = cand.screen(candidates, thresholds, conditions or None)
+    if not conditions and any(p.valid_range for c in candidates
+                              for p in c.properties.values()):
+        # valid_range was enforced at solve time and nowhere else, so a
+        # condition-dependent property voted unconditionally in a screen.
+        # Reported in re-review. Saying so beats guessing a condition.
+        out.note("some properties state a validity range; pass --at "
+                 "bias_v=... to screen under a condition rather than "
+                 "unconditionally")
     rows = []
     for result in report["results"]:
         reasons = [j.detail for j in result["judgements"]
@@ -620,6 +656,7 @@ def _run_solve(out: cliout.Output, args) -> int:
     runner = RUNNERS[cap.id]
     device_inputs = runner.device()
     candidate_terms = {}
+    candidate_snapshot = None
     material = set()
     if bool(args.candidate) != bool(args.candidate_id):
         # A --candidate-id with no file was ACCEPTED and the run went ahead on
@@ -660,6 +697,7 @@ def _run_solve(out: cliout.Output, args) -> int:
         # re-measured candidate under the same id is also a different run.
         candidate_terms = {"candidate": match.identifier,
                            "candidate_fingerprint": cand.fingerprint(match)}
+        candidate_snapshot = cand.snapshot(match)
         # A range this run puts the material outside of is not a warning to be
         # scrolled past: the candidate's own file says its numbers do not
         # describe the material under these conditions, so the solve would be
@@ -758,6 +796,7 @@ def _run_solve(out: cliout.Output, args) -> int:
                     "scenario": f"single bias {args.bias} V"},
         status="converged", command=_recorded_command(),
         version=__version__, fields_data=fields,
+        candidate_snapshot=candidate_snapshot,
         report=f"# {cap.id}\n\nbias {args.bias} V\n")
 
     rows = [{"run_id": path.name, "capability": cap.id, **metrics}]
@@ -1100,6 +1139,10 @@ def _compare_runs(out: cliout.Output, args) -> int:
         out.note("a metric on one side only cannot be differenced; it is "
                  "named here rather than dropped")
     keys = sorted(shared)
+    one_sided = ([{"metric": k, "left": left["metrics"][k], "right": None,
+                   "delta": None} for k in only_left]
+                 + [{"metric": k, "left": None, "right": right["metrics"][k],
+                     "delta": None} for k in only_right])
     rows = []
     for key in keys:
         a, b = left["metrics"][key], right["metrics"][key]
@@ -1110,7 +1153,10 @@ def _compare_runs(out: cliout.Output, args) -> int:
                       for v in (a, b))
         delta = (b - a) if numeric else None
         rows.append({"metric": key, "left": a, "right": b, "delta": delta})
-    out.emit(rows, ("metric", "left", "right", "delta"))
+    # Naming them on stderr left the JSON rows carrying only the intersection,
+    # so an automated consumer saw a comparison that looked complete.
+    # Reported in re-review.
+    out.emit(rows + one_sided, ("metric", "left", "right", "delta"))
     if args.allow_build_diff and left["manifest"].get("code_id") != \
             right["manifest"].get("code_id"):
         out.note(f"BUILDS DIFFER ({left['manifest'].get('code_id', '?')} vs "
@@ -1384,6 +1430,11 @@ def build_parser():
                     "measurement rather than for being unsuitable. A value "
                     "whose uncertainty straddles a bound is `undecided`, "
                     "which is not a soft fail.")
+    p_cscreen.add_argument("--at", action="append", default=[],
+                           metavar="NAME=VALUE",
+                           help="the operating condition to screen under; a "
+                                "property outside its stated valid_range is "
+                                "then undecided rather than a silent vote")
     p_cscreen.add_argument("--require", action="append", default=[],
                            metavar="NAME>=VALUE",
                            help="a hard threshold; repeat for more")

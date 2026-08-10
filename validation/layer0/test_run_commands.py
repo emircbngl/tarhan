@@ -1055,3 +1055,130 @@ def test_compare_names_a_metric_that_exists_on_one_side_only(tmp_path):
     assert proc.returncode == cliout.EXIT_OK
     assert "new_metric_from_a_later_build" in proc.stderr
     assert "only in" in proc.stderr
+
+
+# --- the re-audit ---------------------------------------------------------
+
+def test_a_device_json_key_given_twice_is_refused(tmp_path):
+    """Fixed in the candidate loader and not here, while the CHANGELOG claimed
+    BOTH refused it — a false entry in a user-facing document is worse than
+    the gap it described."""
+    spec = tmp_path / "dup.json"
+    spec.write_text('{"mu_n": 1000.0, "mu_n": 5.0}', encoding="utf-8")
+    out_dir = tmp_path / "runs"
+    proc = run("run", "solve", PN1D, "--device", str(spec),
+               "--output", str(out_dir))
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "given twice" in proc.stderr
+    assert not out_dir.exists()
+
+
+def test_the_candidate_evidence_travels_with_the_result(tmp_path):
+    """The artifact kept an id and a 12-character fingerprint, so composition,
+    basis, source, uncertainty and valid_range lived only in the user's file.
+    Move that file and the run could no longer say what it rested on — while
+    still carrying a fingerprint implying it could."""
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--candidate", _candidates(tmp_path),
+                            "--candidate-id", "SYNTH-A",
+                            "--output", str(tmp_path)).stdout)[0]
+    directory = tmp_path / record["run_id"]
+    lock = json.loads((directory / "candidate.lock.json").read_text())
+    assert lock["identifier"] == "SYNTH-A"
+    assert lock["properties"]["mu_n"]["basis"] == "computed"
+    assert lock["properties"]["mu_n"]["unit"] == "cm^2/Vs"
+
+    manifest = json.loads((directory / "manifest.json").read_text())
+    assert "candidate.lock.json" in manifest["files"], \
+        "the evidence must be checksummed like every other file"
+
+    # ...and the run still reads back once the source file is gone.
+    (tmp_path / "candidates.toml").unlink()
+    proc = run("--format", "json", "run", "show", record["run_id"], "--full",
+               "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+
+
+def test_a_run_without_a_candidate_writes_no_candidate_lock(tmp_path):
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--output", str(tmp_path)).stdout)[0]
+    assert not (tmp_path / record["run_id"] / "candidate.lock.json").exists()
+
+
+def test_candidate_show_puts_the_identity_in_the_machine_format(tmp_path):
+    """It went out as stderr notes, so `--format json --quiet` lost it and the
+    "whole record" claim held only for a human reading a terminal."""
+    proc = run("--quiet", "--format", "json", "candidate", "show", "SYNTH-A",
+               "--from", _candidates(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    rows = {r["property"]: r["value"] for r in json.loads(proc.stdout)}
+    assert rows["@identifier"] == "SYNTH-A"
+    assert rows["@composition"] == "SyntheticA"
+    assert len(rows["@fingerprint"]) == 12
+
+
+def test_compare_reports_one_sided_metrics_in_the_machine_format(tmp_path):
+    """Naming them on stderr left the JSON rows carrying only the
+    intersection, so an automated consumer saw a comparison that looked
+    complete."""
+    left = json.loads(run("--format", "json", "run", "solve", PN1D,
+                          "--output", str(tmp_path)).stdout)[0]["run_id"]
+    right = _restamp_build(tmp_path / left, "deadbeef")
+    metrics_path = tmp_path / right / "metrics.json"
+    metrics = json.loads(metrics_path.read_text())
+    metrics["only_on_the_right"] = 7.0
+    metrics_path.write_text(json.dumps(metrics))
+    mpath = tmp_path / right / "manifest.json"
+    manifest = json.loads(mpath.read_text())
+    import hashlib
+    manifest["files"]["metrics.json"] = hashlib.sha256(
+        metrics_path.read_bytes()).hexdigest()
+    mpath.write_text(json.dumps(manifest))
+
+    proc = run("--format", "json", "compare", "runs", left, right,
+               "--allow-build-diff", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK
+    rows = {r["metric"]: r for r in json.loads(proc.stdout)}
+    assert "only_on_the_right" in rows
+    assert rows["only_on_the_right"]["left"] is None
+    assert rows["only_on_the_right"]["delta"] is None
+
+
+def test_a_screen_can_be_run_under_a_condition(tmp_path):
+    """valid_range was enforced at solve time and nowhere else, so a
+    condition-dependent property voted unconditionally in a screen."""
+    path = tmp_path / "ranged.toml"
+    path.write_text(
+        "[SYNTH-R]\n[SYNTH-R.properties.mu_n]\nvalue = 2000.0\n"
+        'unit = "cm^2/Vs"\nbasis = "computed"\n'
+        "valid_range = { bias_v = [0.0, 0.5] }\n", encoding="utf-8")
+
+    inside = json.loads(run("--format", "json", "candidate", "screen",
+                            "--from", str(path), "--at", "bias_v=0.3",
+                            "--require", "mu_n>=1000").stdout)
+    assert inside[0]["verdict"] == "pass"
+
+    outside = json.loads(run("--format", "json", "candidate", "screen",
+                             "--from", str(path), "--at", "bias_v=0.9",
+                             "--require", "mu_n>=1000").stdout)
+    assert outside[0]["verdict"] == "undecided"
+    assert "valid" in outside[0]["why"]
+
+
+def test_an_unconditioned_screen_of_ranged_properties_says_so(tmp_path):
+    path = tmp_path / "ranged.toml"
+    path.write_text(
+        "[SYNTH-R]\n[SYNTH-R.properties.mu_n]\nvalue = 2000.0\n"
+        'unit = "cm^2/Vs"\nbasis = "computed"\n'
+        "valid_range = { bias_v = [0.0, 0.5] }\n", encoding="utf-8")
+    proc = run("candidate", "screen", "--from", str(path),
+               "--require", "mu_n>=1000")
+    assert proc.returncode == cliout.EXIT_OK
+    assert "--at" in proc.stderr
+
+
+def test_an_unknown_condition_is_refused(tmp_path):
+    proc = run("candidate", "screen", "--from", _candidates(tmp_path),
+               "--at", "temperature_k=300", "--require", "mu_n>=1")
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "not a condition a run reports" in proc.stderr

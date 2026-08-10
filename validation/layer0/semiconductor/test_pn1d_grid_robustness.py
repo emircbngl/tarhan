@@ -103,3 +103,20 @@ def test_fv_junction_doping_regression_guard(j_family):
     J-farkı düzeltme-öncesi seviyeye (1.3e-8) dönerse FAIL."""
     d = abs(j_family["uniform_10nm"] - j_family["uniform_5nm"])
     assert d < 6e-9                                   # ölçüm: 1.7e-9; eski kod: 1.3e-8
+
+
+def test_a_grid_too_large_to_build_is_refused_before_it_is_built():
+    """h0=1e-12 with gamma=1 needs ~6e8 nodes and never returns.
+
+    The earlier guard only fired when the walk stopped making progress at all,
+    which this never does — it just takes forever. Estimated from the
+    geometric series instead, so the failure is an error message rather than a
+    process nobody can interrupt. Reported in re-review.
+    """
+    import pytest
+
+    from tarhan.models.pn1d import PNDiode1D
+
+    with pytest.raises(ValueError, match="over the"):
+        PNDiode1D(h0=1e-12, gamma=1.0)
+    assert len(PNDiode1D().build_grid()) == 125

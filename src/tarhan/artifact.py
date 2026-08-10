@@ -52,6 +52,7 @@ INPUT_LOCK = "input.lock.toml"
 PROVENANCE = "provenance.json"
 METRICS = "metrics.json"
 FIELDS = "fields.npz"
+CANDIDATE_LOCK = "candidate.lock.json"
 STDOUT_LOG = "stdout.log"
 REPORT = "report.md"
 
@@ -331,7 +332,8 @@ def write_run(root, *, capability: str, capability_status: str,
               metrics: Mapping[str, Any], provenance: Mapping[str, Any],
               status: str, command: str, version: str,
               fields_data: Optional[Mapping[str, Any]] = None,
-              stdout: str = "", report: str = "", notes: str = "") -> Path:
+              stdout: str = "", report: str = "", notes: str = "",
+              candidate_snapshot: Optional[Mapping[str, Any]] = None) -> Path:
     """Write one run directory and return its path.
 
     The directory is named by :func:`run_id`, so re-running the same problem
@@ -357,7 +359,29 @@ def write_run(root, *, capability: str, capability_status: str,
     # and partly another.
     root.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{identifier}.", dir=root))
-    path = staging
+    try:
+        return _fill_and_swap(
+            staging, root, final, identifier, env, build,
+            capability=capability, capability_status=capability_status,
+            inputs=inputs, solver=solver, metrics=metrics,
+            provenance=provenance, status=status, command=command,
+            version=version, fields_data=fields_data, stdout=stdout,
+            report=report, notes=notes,
+            candidate_snapshot=candidate_snapshot)
+    except BaseException:
+        # Cleanup used to cover only the rename. A metric that cannot be
+        # serialised raises during the WRITE, and the half-filled hidden
+        # staging directory was left behind for good. Reported in re-review.
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+def _fill_and_swap(path, root, final, identifier, env, build, *, capability,
+                   capability_status, inputs, solver, metrics, provenance,
+                   status, command, version, fields_data, stdout, report,
+                   notes, candidate_snapshot):
+    """Write one staged run directory and move it into place."""
+    staging = path
 
     (path / INPUT_LOCK).write_text(dumps_toml(inputs), encoding="utf-8")
     (path / PROVENANCE).write_text(
@@ -366,6 +390,13 @@ def write_run(root, *, capability: str, capability_status: str,
     (path / METRICS).write_text(
         json.dumps(dict(metrics), indent=2, sort_keys=True, allow_nan=False,
                    ensure_ascii=False) + "\n", encoding="utf-8")
+    if candidate_snapshot is not None:
+        # Written INTO the run directory, so the manifest's checksums cover it
+        # like everything else: the evidence a result rests on travels with
+        # the result rather than living in a file somebody may move or edit.
+        (path / CANDIDATE_LOCK).write_text(
+            json.dumps(dict(candidate_snapshot), indent=2, sort_keys=True,
+                       ensure_ascii=False) + "\n", encoding="utf-8")
     (path / STDOUT_LOG).write_text(stdout, encoding="utf-8")
     (path / REPORT).write_text(report, encoding="utf-8")
     if fields_data:
@@ -432,10 +463,19 @@ def read_run(path) -> Dict[str, Any]:
             f"v{SCHEMA_VERSION}. Upgrade tarhan rather than reading it with a "
             "parser that has never seen those fields")
     recorded_files = manifest.get("files") or {}
-    if schema < SCHEMA_VERSION or not recorded_files:
-        # A pre-checksum directory. Iterating an absent `files` map checks
-        # nothing and returns silently, which reads exactly like a verified
-        # run — reported in review. Say what it is instead.
+    if schema >= SCHEMA_VERSION and not recorded_files:
+        # A current-schema manifest PROMISES checksums. One with the map
+        # removed is not an old directory to be tolerated, it is a damaged new
+        # one — and treating it as "legacy" handed a careless edit, or a
+        # deliberate one, a way to switch verification off. Reported in
+        # re-review.
+        raise ArtifactError(
+            f"{path}: schema v{schema} records no file checksums. That is a "
+            "damaged current-schema run, not a pre-checksum one")
+    if schema < SCHEMA_VERSION:
+        # A genuinely pre-checksum directory. Iterating an absent `files` map
+        # checks nothing and returns silently, which reads exactly like a
+        # verified run — reported in review. Say what it is instead.
         integrity = "unverified-legacy"
     else:
         integrity = "verified"

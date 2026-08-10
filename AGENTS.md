@@ -126,6 +126,12 @@ solver as a bare `3.0`. Thresholds may carry a unit (`mu_n>=0.1m^2/Vs`) and are
 converted the same way; a bound with no unit is taken as canonical, and the
 verdict line states which unit the comparison was made in.
 
+**The evidence travels with the result.** A candidate-driven run writes a
+checksummed `candidate.lock.json` holding the whole canonical record —
+composition, and every property's value, unit, basis, source, uncertainty and
+validity range. The id and fingerprint alone could not reconstruct any of that
+once the source file moved.
+
 **The material is part of the problem's identity.** A candidate-driven run
 hashes the candidate id *and* a fingerprint of its whole evidence record, so
 two materials with equal nominal numbers get two directories, and the same id
