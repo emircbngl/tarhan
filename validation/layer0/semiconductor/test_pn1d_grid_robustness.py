@@ -185,7 +185,7 @@ def test_the_potential_step_is_not_a_claim_about_the_answer():
         "test with a real convergence gate rather than loosening it")
 
 
-def test_the_current_reaches_a_noise_floor_and_which_floor_depends_on_bias():
+def test_the_current_settles_to_a_level_that_depends_on_bias():
     """The sequence, not one number off the end of it.
 
     The previous version of this test asked for `max_gummel=8` versus `200`
@@ -205,11 +205,19 @@ def test_the_current_reaches_a_noise_floor_and_which_floor_depends_on_bias():
     Calling those levels "noise floors" is an interpretation and is marked
     UNVERIFIED — physics_verify is unavailable. What is MEASURED is the
     separation, about 1e5, while the potential step reports ~1e-13 for both.
+    The test name said "noise floor" for a while after the claim had been
+    withdrawn from the docstring; it does not now.
 
-    Two things are asserted, because the first alone is not enough: that the
-    levels are separated, and that neither sequence is still falling. A
-    monotonically decaying pair would pass a ratio test while meaning
-    "converging slowly" instead of "stopped improving".
+    Two things are asserted, and the second one took three tries to get
+    right. `second > first / 10` was the previous attempt and it permits a
+    tenfold fall, so `0.99**i` — strictly decreasing — passed it at 0.578.
+    Reported in review with that counterexample, which is now part of the
+    test.
+
+    The statistic used instead is structural rather than fitted: what
+    fraction of the second half exceeds the median of the first half? For ANY
+    non-increasing sequence that is exactly zero, because every later value
+    lies below every earlier one. For these solves it is 0.39 and 0.48.
     """
     import statistics
 
@@ -234,16 +242,25 @@ def test_the_current_reaches_a_noise_floor_and_which_floor_depends_on_bias():
         f"the two levels differ by only {separation:.0f}x; if the solver "
         "improved, replace this with a real convergence gate")
 
-    # 2. Neither one is still DECAYING. A monotonically shrinking sequence
-    #    would also pass the ratio above while meaning something completely
-    #    different — "converging slowly" rather than "stopped improving" —
-    #    and the previous version of this test could not tell them apart.
-    #    Reported in review. Compared halves rather than endpoints, because a
-    #    single last value is one draw from a wandering band.
+    # 2. Neither one is still DECAYING.
+    def revisits_earlier_levels(values):
+        """Fraction of the second half above the first half's median.
+
+        Zero for any non-increasing sequence, by construction. That is what
+        makes this a structural test rather than a threshold fitted to a
+        machine, which is what the previous two attempts were.
+        """
+        half = len(values) // 2
+        reference = statistics.median(values[:half])
+        return sum(1 for x in values[half:] if x > reference) / len(values[half:])
+
+    # The counterexample from the review, kept so the statistic has to keep
+    # discriminating: strictly decreasing, and it passed the old assertion.
+    assert revisits_earlier_levels([0.99 ** i for i in range(109)]) == 0.0
+
     for name, values in (("0.1 V", marginal), ("0.4 V", settled)):
-        first = statistics.median(values[:len(values) // 2])
-        second = statistics.median(values[len(values) // 2:])
-        assert second > first / 10.0, (
-            f"{name} fell from {first:.1e} to {second:.1e} over the second "
-            "half of the run, so it is still converging rather than sitting "
-            "at a level — re-examine the finding rather than keeping this test")
+        revisited = revisits_earlier_levels(values)
+        assert revisited > 0.1, (
+            f"{name} revisits its earlier level in only {revisited:.0%} of "
+            "the second half, so it may be converging rather than sitting at "
+            "a level — re-examine the finding rather than loosening this")

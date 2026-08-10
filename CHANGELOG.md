@@ -77,6 +77,11 @@ when a release is cut.
   so a 2D run publishing nine metrics against two records read fully-covered
   and `unverified` was unreachable. Published metrics without a record are
   `unverified` now; the run's own diagnostics are excluded.
+- The "neither sequence is still falling" assertion permitted a tenfold
+  fall, so a strictly decreasing `0.99**i` passed it. It uses a structural
+  statistic now — the fraction of the second half above the first half's
+  median, which is exactly zero for any non-increasing sequence — and the
+  counterexample is part of the test.
 - The outside-validated-range terminal branch still said "the solve
   converged" — the fix had landed on the inner path only.
 - `min_gummel > max_gummel` was accepted and silently returned fewer
