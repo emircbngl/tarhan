@@ -531,7 +531,12 @@ def test_a_screen_under_a_condition_refuses_to_vote_out_of_range():
     threshold = parse_threshold("mu_n>=1000")
     assert judge(ranged, threshold, {"bias_v": 0.3}).verdict == "pass"
     assert judge(ranged, threshold, {"bias_v": 0.9}).verdict == "undecided"
-    assert judge(ranged, threshold).verdict == "pass"     # unconditioned
+    # Unconditioned is now "undecided", not "pass". This line asserted the
+    # opposite one revision ago: the library default was the unsafe one and
+    # only the CLI passed the safe value, which is not safe-by-default —
+    # safe-by-default means the DEFAULT is safe, not that one caller
+    # remembers. Reported in re-review.
+    assert judge(ranged, threshold).verdict == "undecided"
 
 
 def test_the_snapshot_carries_what_the_fingerprint_only_implies():

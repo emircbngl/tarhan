@@ -1296,3 +1296,81 @@ def test_an_overflowing_grid_estimate_is_input_not_internal(tmp_path, gamma):
                "--output", str(tmp_path / "runs"))
     assert proc.returncode == cliout.EXIT_INPUT
     assert proc.returncode != cliout.EXIT_INTERNAL
+
+
+# --- the fourth audit -----------------------------------------------------
+
+def test_a_sweep_point_records_everything_a_solve_records(tmp_path):
+    """A sweep point and a solve of the same problem share a run id, so the
+    poorer record OVERWROTE the richer one: sweeping a bias already solved
+    dropped validation_envelope, uncertainty_treatment, the device file and
+    the candidate. One provenance producer now serves both."""
+    solved = json.loads(run("--format", "json", "run", "solve", PN2D,
+                            "--bias", "0.2", "--output",
+                            str(tmp_path)).stdout)[0]
+    before = json.loads((tmp_path / solved["run_id"]
+                         / "provenance.json").read_text())
+
+    proc = run("--format", "json", "run", "sweep", PN2D,
+               "--vary", "bias_v=0.2,0.3", "--output", str(tmp_path))
+    assert proc.returncode == cliout.EXIT_OK, proc.stderr
+    after = json.loads((tmp_path / solved["run_id"]
+                        / "provenance.json").read_text())
+
+    assert set(after) == set(before), "the sweep wrote a poorer record"
+    assert "outside the validated" in after["validation_envelope"]
+    assert after["uncertainty_treatment"] == "nominal-only"
+
+
+def test_a_device_override_leaves_the_reference_device(tmp_path):
+    """The envelope covers the inputs it NAMES. A 0.3 V solve of a completely
+    different material was coming back plainly `converged`, which reads as
+    "inside the evidence" and is a much stronger claim than bias alone
+    supports."""
+    spec = tmp_path / "other.toml"
+    spec.write_text("mu_n = 700.0\n", encoding="utf-8")
+    record = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--bias", "0.3", "--device", str(spec),
+                            "--output", str(tmp_path)).stdout)[0]
+    assert record["status"] == "converged-outside-validated-range"
+    provenance = json.loads((tmp_path / record["run_id"]
+                             / "provenance.json").read_text())
+    assert "reference device" in provenance["validation_envelope"]
+
+
+def test_the_runnable_1d_capability_has_an_envelope_too(tmp_path):
+    """It had none, so a 0.5 V default solve was plainly `converged` while the
+    cross-oracle evidence runs 0.15-0.40 V."""
+    inside = json.loads(run("--format", "json", "run", "solve", PN1D,
+                            "--bias", "0.3", "--output",
+                            str(tmp_path)).stdout)[0]
+    assert inside["status"] == "converged"
+    outside = json.loads(run("--format", "json", "run", "solve", PN1D,
+                             "--bias", "0.5", "--output",
+                             str(tmp_path)).stdout)[0]
+    assert outside["status"] == "converged-outside-validated-range"
+
+
+def test_the_envelope_is_discoverable_without_running_anything():
+    """A machine-readable limit that no machine format carries is not
+    machine-readable: a client could only learn the range by running something
+    and reading the status back."""
+    proc = run("--format", "json", "capabilities", "show", PN2D)
+    assert proc.returncode == cliout.EXIT_OK
+    record = json.loads(proc.stdout)[0]
+    assert "bias_v" in record["envelope"]
+    assert "0.3" in record["envelope"] and "0.5" in record["envelope"]
+
+    listed = json.loads(run("--format", "json", "capabilities",
+                            "list").stdout)
+    assert all("envelope" in row for row in listed)
+
+
+@pytest.mark.parametrize("value", ["nan", "inf"])
+def test_a_non_finite_screen_condition_is_refused(tmp_path, value):
+    """Every range comparison against NaN is False, so an out-of-range
+    property could screen clean."""
+    proc = run("candidate", "screen", "--from", _candidates(tmp_path),
+               "--at", f"bias_v={value}", "--require", "mu_n>=1")
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "finite" in proc.stderr

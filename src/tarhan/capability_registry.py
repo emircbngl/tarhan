@@ -106,6 +106,12 @@ REGISTRY: Tuple[Capability, ...] = (
         dimension=1,
         time="steady",
         status="validated",
+        # The runnable 1D capability had NO envelope, so a 0.5 V default solve
+        # came back plainly `converged` while the cross-oracle evidence runs
+        # 0.15-0.40 V. Reported in re-review. Taken from that evidence rather
+        # than from where the solver happens to converge — those are different
+        # claims and only the first is validation.
+        envelope={"bias_v": (0.15, 0.40)},
         source="models/pn1d.py",
         inputs=("doping profile", "grid", "bias", "SRH lifetimes (optional)"),
         produces=("psi, n, p", "terminal current", "band diagram"),
@@ -139,6 +145,9 @@ REGISTRY: Tuple[Capability, ...] = (
                 "contact node sets", "bias"),
         produces=("psi, n, p on the mesh", "contact currents", "I-V sweep"),
         # The prose limit below, in a form a run can check itself against.
+        # ONLY the biases are covered: this says nothing about a device whose
+        # doping or geometry differs from the one the evidence was collected
+        # on, which is why the CLI flags any device override separately.
         envelope={"bias_v": (0.30, 0.50)},
         limits=("the terminal HOLE current is only reproducible above about "
                 "0.3 V; at 0.2 V it wanders by a few percent with the "

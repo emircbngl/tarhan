@@ -73,6 +73,16 @@ when a release is cut.
   "legacy" rather than refused as damaged.
 - `compare runs` named one-sided metrics only on stderr, so the JSON rows
   carried just the intersection.
+- `run sweep` built its own three-key provenance, so a sweep point overwrote a
+  solve of the same problem with a poorer record. Both use one producer now.
+- The 1D capability had no envelope at all, and a device or candidate override
+  no longer counts as "inside the evidence".
+- `screen()` defaulted to the UNSAFE `require_conditions=False`; only the CLI
+  passed the safe value. Safe-by-default means the default is safe.
+- `--at bias_v=nan` was accepted, and every range comparison against NaN is
+  False, so an out-of-range property could screen clean.
+- The `envelope` was absent from `capabilities list/show`, so a machine-
+  readable limit no machine format carried.
 - A solve outside a capability's validated range wrote `status=converged`
   with no signal; capabilities now carry a machine-readable `envelope` and the
   run records `converged-outside-validated-range`.

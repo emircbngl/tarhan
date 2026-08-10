@@ -423,7 +423,7 @@ class Judgement:
 
 def judge(candidate: Candidate, threshold: Threshold,
           conditions: Optional[Mapping[str, float]] = None,
-          require_conditions: bool = False) -> Judgement:
+          require_conditions: bool = True) -> Judgement:
     """Apply one threshold, letting uncertainty refuse to decide.
 
     The interesting case is the third one. If the value's interval straddles
@@ -502,8 +502,14 @@ def judge(candidate: Candidate, threshold: Threshold,
 
 
 def screen(candidates, thresholds, conditions=None,
-           require_conditions: bool = False) -> Dict[str, Any]:
+           require_conditions: bool = True) -> Dict[str, Any]:
     """Apply every threshold to every candidate. Nothing is dropped silently.
+
+    ``require_conditions`` defaults to TRUE: a ranged property with no
+    condition supplied is `undecided`, not a pass. It defaulted to False and
+    only the CLI passed the safe value, so anyone calling this library
+    directly got the unsafe behaviour — safe-by-default means the DEFAULT is
+    safe, not that one caller remembers. Reported in re-review.
 
     A screen that returns only the survivors hides its own selectivity: you
     cannot tell a threshold that removed one candidate from one that removed

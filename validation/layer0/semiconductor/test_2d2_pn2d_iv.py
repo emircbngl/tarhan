@@ -196,8 +196,13 @@ def test_the_reliable_biases_do_not_move_when_the_criterion_tightens():
     device, devsim = results["device"], results["devsim"]
     bound = {0.30: 2e-3, 0.40: 1e-4, 0.50: 1e-4}
 
-    seen = {v: [] for v in RELIABLE_VOLTS}
-    for tol in (1e-9, 1e-11, 1e-13):
+    # 0.20 V is collected too. Testing only the retained biases proved the
+    # inside of the boundary and left the REASON for the boundary as a comment
+    # — reported in re-review. And the sweep now reaches 1e-14, the tolerance
+    # at which the excluded point was measured, rather than stopping one step
+    # short of its own evidence.
+    seen = {v: [] for v in IV_VOLTS}
+    for tol in (1e-9, 1e-11, 1e-13, 1e-14):
         state = None
         for v in results["ramp"]:
             state = solve_bias(device, v, state=state, gummel_tol=tol,
@@ -210,5 +215,16 @@ def test_the_reliable_biases_do_not_move_when_the_criterion_tightens():
         spread = max(seen[v]) - min(seen[v])
         assert spread < bound[v], (
             f"I_p at {v} V moves by {spread:.2e} as gummel_tol goes 1e-9 to "
-            f"1e-13, which is not inside its own {bound[v]:.0e} comparison "
+            f"1e-14, which is not inside its own {bound[v]:.0e} comparison "
             "bound. Either the bound is tracking noise or something regressed")
+
+    # The other side of the boundary: 0.20 V must STILL be unstable, or the
+    # exclusion has been overtaken by a fix and should be revisited rather
+    # than left standing out of habit.
+    excluded = max(seen[0.20]) - min(seen[0.20])
+    assert excluded > 1e-3, (
+        f"I_p at 0.20 V now moves by only {excluded:.2e} across tolerances. "
+        "If that is a real improvement, extend RELIABLE_VOLTS and delete this "
+        "assertion — an exclusion nobody rechecks becomes folklore")
+    assert excluded > max(max(seen[v]) - min(seen[v]) for v in RELIABLE_VOLTS), \
+        "0.20 V is supposed to be the WORST bias; it no longer is"

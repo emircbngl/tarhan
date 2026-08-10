@@ -25,12 +25,23 @@ from tarhan.capability_registry import CapabilityNotFound, all_capabilities, get
 from tarhan.forge import Forge
 from tarhan.numerics.diffusion1d import cottrell_fd_samples
 
-_CAP_COLUMNS = ("id", "status", "dimension", "time", "source")
+_CAP_COLUMNS = ("id", "status", "dimension", "time", "source", "envelope")
+
+
+def _envelope_text(cap) -> str:
+    """The validated range as a string a machine format can carry."""
+    return "; ".join(f"{name} in [{low:g}, {high:g}]"
+                     for name, (low, high) in sorted(cap.envelope.items()))
 
 
 def _cap_row(cap) -> dict:
+    # `envelope` is on the record and was NOT in this dict, so a client could
+    # not discover the valid range without running something and reading the
+    # status back. A machine-readable limit that no machine format carries is
+    # not machine-readable. Reported in re-review.
     return {"id": cap.id, "status": cap.status, "dimension": cap.dimension,
-            "time": cap.time, "source": cap.source}
+            "time": cap.time, "source": cap.source,
+            "envelope": _envelope_text(cap)}
 
 
 def _capabilities_list(out: cliout.Output) -> int:
@@ -523,10 +534,17 @@ def _candidate_screen(out: cliout.Output, args) -> int:
                       f"Known: {', '.join(cand.CONDITIONS)}")
             return cliout.EXIT_INPUT
         try:
-            conditions[name] = float(raw)
+            value = float(raw)
         except ValueError:
             out.error(f"--at {item}: {raw!r} is not a number")
             return cliout.EXIT_INPUT
+        if not math.isfinite(value):
+            # `--at bias_v=nan` was accepted and every range comparison with
+            # it is False, so an out-of-range property could screen clean.
+            # Reported in re-review.
+            out.error(f"--at {item}: {raw!r} is not a finite condition")
+            return cliout.EXIT_INPUT
+        conditions[name] = value
 
     # A note was not enough: `--quiet --format json` dropped it and a ranged
     # property came back a clean PASS. A missing condition is missing
@@ -597,6 +615,31 @@ def _solver_numbers_or_status(out: cliout.Output, args, default_max_iter):
         out.error(f"--max-iter {max_iter}: must be at least one iteration")
         return None
     return {"tol": tol, "bias": bias, "max_iter": max_iter}
+
+
+def _provenance(cap, runner, *, scenario, outside, candidate_id=None,
+                device_file=None):
+    """The evidence fields EVERY run records, wherever it was launched from.
+
+    `run sweep` built its own three-key dict, so a sweep point silently
+    dropped validation_envelope, uncertainty_treatment, the device file and
+    the candidate — and because a sweep point and a solve of the same problem
+    share a run id, sweeping over a bias you had already solved OVERWROTE the
+    richer record with the poorer one. Reported in re-review. One producer, so
+    the two cannot disagree about what a result has to carry.
+    """
+    overridden = bool(device_file) or bool(candidate_id)
+    return {"model": cap.source,
+            "device": (f"{runner.describe}, overridden" if overridden
+                       else runner.describe),
+            "candidate": candidate_id or "none",
+            "device_file": device_file or "none",
+            # The screen uses each property's spread; the SOLVE takes the
+            # nominal value alone. Defensible choice, indefensible silence.
+            "uncertainty_treatment": "nominal-only",
+            "validation_envelope": ("inside" if not outside
+                                    else "; ".join(outside)),
+            "scenario": scenario}
 
 
 def _recorded_command() -> str:
@@ -779,7 +822,17 @@ def _run_solve(out: cliout.Output, args) -> int:
     # as one — but it must not be reported as plain `converged` either, which
     # is what a 0.2 V 2D solve did while the registry's own prose said that
     # current does not converge. Reported in re-review.
-    outside = cap.outside_envelope(inputs)
+    outside = list(cap.outside_envelope(inputs))
+    if args.device or args.candidate:
+        # The envelope covers the INPUTS it names — biases — and says nothing
+        # about a device whose doping, mobilities or geometry differ from the
+        # one the evidence was collected on. A 0.4 V solve of a completely
+        # different material was coming back plainly `converged`. Reported in
+        # re-review. Any override moves the run off the reference device, and
+        # that is a fact about the run, not a judgement about the answer.
+        outside.append("the device differs from the reference device the "
+                       "evidence was collected on")
+    outside = tuple(outside)
     run_status = "converged-outside-validated-range" if outside else "converged"
     if outside:
         for line in outside:
@@ -790,25 +843,10 @@ def _run_solve(out: cliout.Output, args) -> int:
     path = artifact.write_run(
         args.output, capability=cap.id, capability_status=cap.status,
         inputs=inputs, solver=solver, metrics=metrics,
-        provenance={"model": cap.source,
-                    # "defaults" stops being true the moment anything overrides
-                    # them, and a provenance record that says "defaults" over a
-                    # candidate's properties is the wrong kind of wrong.
-                    "device": (runner.describe if not (args.device or
-                                                       args.candidate)
-                               else f"{runner.describe}, overridden"),
-                    "candidate": args.candidate_id or "none",
-                    "device_file": Path(args.device).name if args.device
-                                   else "none",
-                    # The screen uses each property's spread; the SOLVE takes
-                    # the nominal value alone. That is a defensible choice and
-                    # an indefensible silence — a reader of this artifact
-                    # would otherwise have no way to know the uncertainty went
-                    # nowhere. Reported in review.
-                    "uncertainty_treatment": "nominal-only",
-                    "validation_envelope": ("inside" if not outside
-                                            else "; ".join(outside)),
-                    "scenario": f"single bias {args.bias} V"},
+        provenance=_provenance(
+            cap, runner, scenario=f"single bias {args.bias} V",
+            outside=outside, candidate_id=args.candidate_id,
+            device_file=Path(args.device).name if args.device else None),
         status=run_status, command=_recorded_command(),
         version=__version__, fields_data=fields,
         candidate_snapshot=candidate_snapshot,
@@ -1002,8 +1040,11 @@ def _run_sweep(out: cliout.Output, args) -> int:
             path = artifact.write_run(
                 args.output, capability=cap.id, capability_status=cap.status,
                 inputs=inputs, solver=solver, metrics=metrics,
-                provenance={"model": cap.source, "device": runner.describe,
-                            "scenario": f"sweep point {point}"},
+                provenance=_provenance(
+                    cap, runner, scenario=f"sweep point {point}",
+                    outside=cap.outside_envelope(inputs),
+                    device_file=(Path(args.device).name if args.device
+                                 else None)),
                 status=row["status"], command=_recorded_command(),
                 version=__version__, fields_data=fields,
                 report=f"# {cap.id}\n\nsweep point {point}\n")

@@ -201,12 +201,19 @@ proven and being wired up are different facts. Both transient capabilities are
 in that state: there is no bias waveform to give them.
 
 **A run says whether it is inside the evidence.** Capability records carry a
-machine-readable `envelope` (2D steady: `bias_v` in [0.30, 0.50]). A solve
-outside it still runs and still writes an artifact — but its status is
-`converged-outside-validated-range`, not `converged`, and provenance records
-which input was outside. Outside the envelope does not mean the answer is
-wrong; it means nothing has established that it is right, and those are
-different claims.
+machine-readable `envelope`, visible in `capabilities list/show` so a client
+can read it before running anything — 1D steady `bias_v` in [0.15, 0.40], 2D
+steady [0.30, 0.50], both taken from the cross-oracle evidence rather than
+from where the solver happens to converge. A run outside it still runs and
+still writes an artifact, with status `converged-outside-validated-range` and
+the breach named in provenance.
+
+**Any `--device` or `--candidate` override also leaves the envelope**, because
+the envelope covers the inputs it NAMES — biases — and says nothing about a
+device whose doping, mobilities or geometry differ from the one the evidence
+was collected on. Outside the envelope does not mean the answer is wrong; it
+means nothing has established that it is right, and those are different
+claims.
 
 A run leaves `runs/<problem-id>-<build-id>/` behind: `manifest.json`,
 `input.lock.toml`, `provenance.json`, `metrics.json`, `fields.npz`,
