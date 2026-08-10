@@ -1196,8 +1196,12 @@ def test_a_run_outside_the_validated_range_says_so(tmp_path):
                             str(tmp_path)).stdout)[0]
     assert inside["status"] == "converged"
 
+    # 0.5 V, not 0.2 V. The envelope used to be borrowed from the DEVSIM-mesh
+    # stage, under which 0.2 V was excluded; corrected to this device's own
+    # evidence, 0.2 V is INSIDE (its current is checked there) and 0.5 V is
+    # outside (nothing has been measured there for this device).
     outside = json.loads(run("--format", "json", "run", "solve", PN2D,
-                             "--bias", "0.2", "--output",
+                             "--bias", "0.5", "--output",
                              str(tmp_path)).stdout)[0]
     assert outside["status"] == "converged-outside-validated-range"
 
@@ -1210,7 +1214,7 @@ def test_a_run_outside_the_validated_range_says_so(tmp_path):
 
 
 def test_the_envelope_warning_reaches_a_human_too(tmp_path):
-    proc = run("run", "solve", PN2D, "--bias", "0.2", "--output", str(tmp_path))
+    proc = run("run", "solve", PN2D, "--bias", "0.5", "--output", str(tmp_path))
     assert proc.returncode == cliout.EXIT_OK
     assert "OUTSIDE THE VALIDATED RANGE" in proc.stderr
 
@@ -1306,13 +1310,13 @@ def test_a_sweep_point_records_everything_a_solve_records(tmp_path):
     dropped validation_envelope, uncertainty_treatment, the device file and
     the candidate. One provenance producer now serves both."""
     solved = json.loads(run("--format", "json", "run", "solve", PN2D,
-                            "--bias", "0.2", "--output",
+                            "--bias", "0.5", "--output",
                             str(tmp_path)).stdout)[0]
     before = json.loads((tmp_path / solved["run_id"]
                          / "provenance.json").read_text())
 
     proc = run("--format", "json", "run", "sweep", PN2D,
-               "--vary", "bias_v=0.2,0.3", "--output", str(tmp_path))
+               "--vary", "bias_v=0.5,0.3", "--output", str(tmp_path))
     assert proc.returncode == cliout.EXIT_OK, proc.stderr
     after = json.loads((tmp_path / solved["run_id"]
                         / "provenance.json").read_text())
@@ -1362,7 +1366,7 @@ def test_the_envelope_is_discoverable_without_running_anything():
     # is visible and still unusable: an automated consumer had to parse a
     # sentence, the one thing the output contract exists to prevent.
     assert record["envelope"] == {"bias_v": {"intervals": [[0.0, 0.0],
-                                                           [0.3, 0.5]]}}
+                                                           [0.2, 0.4]]}}
 
     listed = json.loads(run("--format", "json", "capabilities",
                             "list").stdout)
@@ -1419,9 +1423,15 @@ def test_a_plain_sweep_on_the_reference_device_stays_inside(tmp_path):
 @pytest.mark.parametrize("capability", [PN1D, PN2D])
 def test_equilibrium_is_inside_the_envelope(tmp_path, capability):
     """A single interval per input reported `outside-validated-range` for 0 V
-    — the best-validated point in either capability. 2D equilibrium is
-    checked against DEVSIM to 2.24e-16 V. The envelope is a union of
-    intervals now, so evidence with a gap in it can be stated as one."""
+    — the best-validated point in either capability.
+
+    The DEVSIM attribution that stood here was wrong and was reported as
+    such: 2.24e-16 V is stage 2D-1, on DEVSIM's OWN mesh. The device this
+    command builds is the generated rectangular diode, whose equilibrium
+    evidence is max|dpsi_hat| 1.26e-13 against the validated 1D solver. Same
+    conclusion, different oracle — and getting that wrong in a docstring is
+    how the envelope came to describe the wrong device in the first place.
+    """
     record = json.loads(run("--format", "json", "run", "solve", capability,
                             "--bias", "0", "--output",
                             str(tmp_path)).stdout)[0]
@@ -1429,8 +1439,13 @@ def test_equilibrium_is_inside_the_envelope(tmp_path, capability):
 
 
 def test_the_gap_between_the_intervals_is_still_outside(tmp_path):
-    """Adding equilibrium must not swallow the 0.2 V exclusion with it."""
+    """Adding equilibrium must not swallow the exclusion above it.
+
+    For the generated 2D device the evidence runs to 0.40 V, so 0.45 V sits
+    in neither interval and must be reported outside — otherwise a union
+    would just be a wider single range.
+    """
     record = json.loads(run("--format", "json", "run", "solve", PN2D,
-                            "--bias", "0.2", "--output",
+                            "--bias", "0.45", "--output",
                             str(tmp_path)).stdout)[0]
     assert record["status"] == "converged-outside-validated-range"

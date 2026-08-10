@@ -205,9 +205,15 @@ machine-readable `envelope`, visible in `capabilities list/show` so a client
 can read it before running anything — **structured** in `--format json`
 (`{"bias_v": {"intervals": [[0.0, 0.0], [0.3, 0.5]]}}`), text elsewhere.
 
-It is a **union of intervals**, because the evidence is not one range: 2D
-steady is validated at equilibrium, NOT reproducible at 0.2 V, and validated
-again over 0.3–0.5 V. 1D steady is `[0, 0] ∪ [0.15, 0.40]`. A run outside
+It is a **union of intervals**, because the evidence is not one range, and it
+**names the device it was measured on** (`envelope_basis`, shown by
+`capabilities show`). That second part is not bookkeeping: the 2D envelope was
+briefly taken from the DEVSIM-mesh stage — `Na/Nd 1e18`, `μ 400/200`, partial
+top contact — and applied to the device `run solve` actually builds, which is
+the generated rectangular diode at `1e16`, `1350/480`, full end contacts.
+Evidence from one device says nothing about another. Each envelope now comes
+from that device's own evidence: 1D `[0,0] ∪ [0.15, 0.40]` against DEVSIM, 2D
+`[0,0] ∪ [0.20, 0.40]` against the validated 1D solver. A run outside
 still runs and still writes an artifact, with status
 `converged-outside-validated-range` and the breach named in provenance.
 

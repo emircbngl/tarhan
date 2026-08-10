@@ -73,6 +73,15 @@ when a release is cut.
   "legacy" rather than refused as damaged.
 - `compare runs` named one-sided metrics only on stderr, so the JSON rows
   carried just the intersection.
+- The 2D envelope was taken from the DEVSIM-mesh stage and applied to the
+  CLI's generated device, which has different doping, mobilities and contacts.
+  0.5 V read "inside" with no evidence for that device at all, and 0.2 V read
+  "outside" although its current IS checked there. Envelopes now come from the
+  device's own evidence and must name it (`envelope_basis`).
+- The envelope schema validated nothing: an empty interval list, a reversed
+  `[1, 0]`, a `NaN` bound and an input name no run reports were all accepted,
+  and a missing input was reported as "inside".
+- `capabilities show` did not display the envelope the docs said it did.
 - A device override in `run sweep` still reported `converged`: the
   reference-device check was added to `solve` and not to `sweep`. It is
   computed from the resolved device now, so `--vary mu_n=…` counts too.

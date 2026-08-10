@@ -1288,6 +1288,13 @@ def _capabilities_show(out: cliout.Output, capability_id: str) -> int:
                  f"{'time:':<16}{cap.time}"]
         if cap.source:
             lines.append(f"{'source:':<16}src/tarhan/{cap.source}")
+        if cap.envelope:
+            # `list` showed it and the detailed `show` did not, while AGENTS
+            # and the CHANGELOG both said "visible in list/show". Reported in
+            # re-review. The basis matters more than the numbers: an envelope
+            # says nothing without the device it was measured on.
+            lines.append(f"{'validated:':<16}{_envelope_text(cap)}")
+            lines.append(f"{'  measured on:':<16}{cap.envelope_basis}")
         for label, items in (("inputs:", cap.inputs),
                              ("produces:", cap.produces),
                              ("limits:", cap.limits)):

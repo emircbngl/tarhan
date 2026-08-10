@@ -113,8 +113,12 @@ REGISTRY: Tuple[Capability, ...] = (
         # claims and only the first is validation.
         # Equilibrium is separately validated (built-in potential to 0.57
         # microvolt), so it is its own interval rather than collateral damage
-        # from an I-V range that starts at 0.15 V.
+        # from an I-V range that starts at 0.15 V. Unlike the 2D case, the
+        # device the evidence was collected on IS the device `run solve`
+        # builds: PNDiode1D at its defaults.
         envelope={"bias_v": ((0.0, 0.0), (0.15, 0.40))},
+        envelope_basis="PNDiode1D at its defaults, against DEVSIM "
+                       "(validation/layer0/semiconductor/test_oracle_devsim.py)",
         source="models/pn1d.py",
         inputs=("doping profile", "grid", "bias", "SRH lifetimes (optional)"),
         produces=("psi, n, p", "terminal current", "band diagram"),
@@ -151,10 +155,23 @@ REGISTRY: Tuple[Capability, ...] = (
         # ONLY the biases are covered: this says nothing about a device whose
         # doping or geometry differs from the one the evidence was collected
         # on, which is why the CLI flags any device override separately.
-        # Three regions, not one: equilibrium is validated against DEVSIM to
-        # 2.24e-16 V, 0.2 V is where the hole current stops being
-        # reproducible, and 0.3-0.5 V is the validated I-V range.
-        envelope={"bias_v": ((0.0, 0.0), (0.30, 0.50))},
+        # THE DEVICE THE CLI SOLVES, not the one the DEVSIM stage used. The
+        # previous [0, 0] u [0.30, 0.50] came from stage 2D-2, whose device is
+        # DEVSIM's mesh with Na/Nd 1e18, mu 400/200 and a partial top contact.
+        # `run solve` builds a generated rectangular diode at 1e16, 1350/480,
+        # full end contacts — a different device, so that evidence does not
+        # transfer. Reported in re-review, with both consequences: 0.5 V was
+        # reported "inside" with no evidence for this device at all, and
+        # 0.2 V was reported "outside" although this device's current IS
+        # checked there.
+        #
+        # These intervals come from test_diode2d_mesh.py, which is the
+        # evidence for THIS device: potential against the validated 1D solver
+        # at 0.0 and 0.30 V, terminal current at 0.20, 0.30 and 0.40 V.
+        envelope={"bias_v": ((0.0, 0.0), (0.20, 0.40))},
+        envelope_basis="the generated RectangularDiode2D at its defaults, "
+                       "against the validated 1D solver "
+                       "(validation/layer0/semiconductor/test_diode2d_mesh.py)",
         limits=("the terminal HOLE current is only reproducible above about "
                 "0.3 V; at 0.2 V it wanders by a few percent with the "
                 "platform and with the convergence tolerance, so an I-V claim "

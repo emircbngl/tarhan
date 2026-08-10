@@ -201,3 +201,64 @@ def test_the_schema_refuses_a_record_that_cannot_be_true(over, why):
 def test_statuses_and_axes_are_what_the_registry_uses():
     assert {c.status for c in all_capabilities()} <= set(STATUSES)
     assert {c.time for c in all_capabilities()} <= set(TIME_AXES)
+
+
+# --- the envelope schema enforces itself ----------------------------------
+
+def _planned(**over):
+    from tarhan.capabilities import Capability
+
+    base = dict(domain="x", family="y", dimension=1, time="steady",
+                status="planned", reason="r", needs="n")
+    base.update(over)
+    return Capability(**base)
+
+
+@pytest.mark.parametrize("envelope,why", [
+    ({"bias_v": ()}, "no intervals"),
+    ({"bias_v": ((1.0, 0.0),)}, "reversed"),
+    ({"bias_v": ((float("nan"), 1.0),)}, "two finite numbers"),
+    ({"bias_v": ((0.0, float("inf")),)}, "two finite numbers"),
+    ({"bias_v": ((0.0,),)}, "two finite numbers"),
+    ({"temperature": ((0.0, 1.0),)}, "which no run reports"),
+])
+def test_an_envelope_that_cannot_mean_anything_is_refused(envelope, why):
+    """Every one of these was accepted, and each silently means "everything is
+    inside": an empty interval list, a reversed bound, a NaN, and an input
+    name no run supplies. Reported in re-review as the same shape as the
+    checksum map that disabled itself when an entry was removed."""
+    from tarhan.capabilities import CapabilityError
+
+    with pytest.raises(CapabilityError, match=why):
+        _planned(envelope=envelope, envelope_basis="synthetic")
+
+
+def test_an_envelope_must_name_the_device_it_was_measured_on():
+    """The finding this field exists for: the 2D envelope was taken from the
+    DEVSIM-mesh stage and applied to the CLI's generated device — different
+    doping, different mobilities, different contacts. Evidence from one device
+    says nothing about another, so the record has to carry which."""
+    from tarhan.capabilities import CapabilityError
+
+    with pytest.raises(CapabilityError, match="naming the device"):
+        _planned(envelope={"bias_v": ((0.0, 1.0),)})
+
+
+def test_a_missing_input_is_not_reported_as_inside():
+    """"No value supplied" is not "inside"."""
+    cap = _planned(envelope={"bias_v": ((0.3, 0.5),)},
+                   envelope_basis="synthetic")
+    breaches = cap.outside_envelope({})
+    assert breaches and "did not report a value" in breaches[0]
+
+
+@pytest.mark.parametrize("capability_id", [
+    "semiconductor.pn.drift-diffusion.1d.steady",
+    "semiconductor.pn.drift-diffusion.2d.steady",
+])
+def test_every_runnable_envelope_names_its_device(capability_id):
+    """A real record, not a synthetic one: the basis must point at the file
+    holding the evidence, so the claim can be checked rather than believed."""
+    cap = get(capability_id)
+    assert cap.envelope and cap.envelope_basis
+    assert "validation/layer0" in cap.envelope_basis

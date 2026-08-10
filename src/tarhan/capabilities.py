@@ -30,6 +30,7 @@ reason plus the condition that would unlock it.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Mapping, Tuple
 
@@ -64,6 +65,12 @@ MAX_DIMENSION = 3
 #: Statuses describing something a user cannot run today, which therefore owe an
 #: explanation rather than a status word.
 _NOT_RUNNABLE = ("blocked", "planned")
+
+
+#: Inputs a run actually reports, and therefore the only names an envelope may
+#: use. Mirrors ``candidate.CONDITIONS`` for the same reason: a bound over
+#: something nothing supplies cannot be checked.
+ENVELOPE_INPUTS = ("bias_v",)
 
 
 class CapabilityError(ValueError):
@@ -123,6 +130,46 @@ class Capability:
     #: best-validated point in the capability. Reported in re-review.
     envelope: Mapping[str, Tuple[Tuple[float, float], ...]] = field(
         default_factory=dict)
+    #: WHICH device the envelope describes. Required whenever an envelope is
+    #: given, because the evidence identity was otherwise absent from the data
+    #: model: the 2D envelope was taken from the DEVSIM-mesh stage
+    #: (Na/Nd 1e18, mu 400/200, partial top contact) and applied to the CLI's
+    #: generated device (1e16, 1350/480, full contacts) — a different device
+    #: entirely. Reported in re-review, and a stronger finding than the
+    #: mis-attributed comment I had called it.
+    envelope_basis: str = ""
+
+    def _validate_envelope(self) -> None:
+        """The envelope schema, enforced. It was not, and accepted an empty
+        interval list, a reversed [1, 0], a NaN bound, and an input name no
+        run reports — each of which silently means "everything is inside"."""
+        if self.envelope and not self.envelope_basis:
+            raise CapabilityError(
+                f"{self.id} gives an envelope without naming the device it "
+                "was measured on; evidence from one device says nothing about "
+                "another")
+        for name, intervals in self.envelope.items():
+            if name not in ENVELOPE_INPUTS:
+                raise CapabilityError(
+                    f"{self.id}: envelope names {name!r}, which no run "
+                    f"reports. Known inputs: {', '.join(ENVELOPE_INPUTS)}")
+            if not intervals:
+                raise CapabilityError(
+                    f"{self.id}: envelope for {name} has no intervals, which "
+                    "would put every value outside it while reading as a "
+                    "validated range")
+            for pair in intervals:
+                if (not isinstance(pair, (tuple, list)) or len(pair) != 2
+                        or not all(isinstance(v, (int, float))
+                                   and not isinstance(v, bool)
+                                   and math.isfinite(v) for v in pair)):
+                    raise CapabilityError(
+                        f"{self.id}: envelope interval {pair!r} for {name} "
+                        "must be two finite numbers")
+                if pair[0] > pair[1]:
+                    raise CapabilityError(
+                        f"{self.id}: envelope interval {pair!r} for {name} is "
+                        "reversed, so nothing can ever fall inside it")
 
     def outside_envelope(self, inputs) -> Tuple[str, ...]:
         """Which inputs fall outside the range the evidence covers.
@@ -135,6 +182,12 @@ class Capability:
         out = []
         for name, intervals in sorted(self.envelope.items()):
             if name not in inputs:
+                # "No value supplied" is not "inside". Skipping the check
+                # because the record is absent is the same shape as the
+                # checksum map that disabled itself when an entry was deleted
+                # — the fourth appearance of it. Reported in re-review.
+                out.append(f"{name} is part of the validated envelope and the "
+                           "run did not report a value for it")
                 continue
             value = float(inputs[name])
             if not any(low <= value <= high for low, high in intervals):
@@ -210,6 +263,8 @@ class Capability:
             raise CapabilityError(
                 f"{self.id} is blocked but does not say what that does NOT mean. "
                 "Readers hear 'blocked' as 'unsupported forever'; say otherwise")
+
+        self._validate_envelope()
 
     @property
     def id(self) -> str:
