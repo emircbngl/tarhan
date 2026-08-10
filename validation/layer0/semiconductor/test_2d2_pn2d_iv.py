@@ -51,9 +51,22 @@ from devsim_pn2d_compare import IV_VOLTS, compare_iv, ideality  # noqa: E402
 #: non-monotonically, is not converged at 1e-9 either — the agreement this
 #: laptop reported was luck, and CI drew a different card from the same deck.
 #:
-#: So the honest claim starts at 0.30 V. The 0.20 V point is still SOLVED and
-#: still compared below, under a bound that says what is actually reproducible
-#: instead of a bound that happened to hold here.
+#: So the honest claim starts at 0.30 V — and that cutoff is measured on BOTH
+#: sides rather than picked. The same tolerance sweep across every bias, as
+#: I_p/I_p(DEVSIM) over gummel_tol 1e-9 -> 1e-14:
+#:
+#:   0.2 V   1.011000  1.011000  1.034681  1.027285   spread 2.4e-2   EXCLUDED
+#:   0.3 V   0.999355  0.999238  0.999315  0.999509   spread 2.7e-4   bound 2e-3
+#:   0.4 V   0.999987  0.999977  0.999977  0.999987   spread 1.0e-5   bound 1e-4
+#:   0.5 V   1.000001  1.000001  1.000001  1.000001   spread ~0       bound 1e-4
+#:
+#: Every retained bias sits an order of magnitude inside its own bound, so the
+#: bounds below are not tracking the noise floor. 0.2 V is the only one that
+#: does — and it is off by two orders.
+#:
+#: The 0.20 V point is still SOLVED and still compared below, under a bound
+#: that says what is actually reproducible instead of a bound that happened to
+#: hold here.
 RELIABLE_VOLTS = tuple(v for v in IV_VOLTS if v >= 0.30)
 
 
