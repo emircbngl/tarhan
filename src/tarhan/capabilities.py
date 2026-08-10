@@ -236,6 +236,15 @@ class Capability:
              for name, intervals in self.envelope.items()}))
         object.__setattr__(self, "envelope_basis", self.envelope_basis.strip())
         object.__setattr__(self, "coverage", tuple(self.coverage))
+        names = [record.metric for record in self.coverage]
+        if len(names) != len(set(names)):
+            # coverage_report() builds a dict, so a duplicate metric silently
+            # dropped the earlier record and could turn a measured point into
+            # "outside". Reported in re-review.
+            duplicated = sorted({n for n in names if names.count(n) > 1})
+            raise CapabilityError(
+                f"{self.id}: coverage names {duplicated} more than once; the "
+                "later record would silently replace the earlier one")
 
         if self.envelope and not self.envelope_basis:
             raise CapabilityError(

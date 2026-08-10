@@ -316,7 +316,12 @@ def _solve_pn1d_steady(inputs, on_iteration=None):
                        on_iteration=on_iteration)
     metrics = {"current_a_cm2": float(state["j"]),
                "gummel_iterations": int(state["gummel_iters"]),
-               "grid_points": int(len(state["x_hat"]))}
+               "grid_points": int(len(state["x_hat"])),
+               # What "converged" was actually worth, recorded rather than
+               # asserted: the potential step AND the terminal current's
+               # change per outer pass.
+               "psi_step": float(state["psi_step"]),
+               "current_rel_change": float(state["current_rel_change"])}
     fields = {"x_hat": state["x_hat"], "psi": state["psi"],
               "n_hat": state["n_hat"], "p_hat": state["p_hat"]}
     return metrics, fields
@@ -352,7 +357,11 @@ def _solve_pn2d_steady(inputs, on_iteration=None):
     # quantity the 1D model reports. Established by measurement against the
     # validated 1D solver (ratio 1.000000 at 0.3 V and 0.4 V), not asserted
     # from a formula — physics_verify is unavailable this session.
-    metrics = {"current_a_cm2": float(state["i"]) / spec.height,
+    residual = state["coupled_residual"]
+    metrics = {"psi_step": float(state["psi_step"]),
+               "current_rel_change": float(state["current_rel_change"]),
+               "coupled_poisson_residual": float(residual["poisson"]),
+               "current_a_cm2": float(state["i"]) / spec.height,
                "terminal_current_a_per_cm": float(state["i"]),
                "electron_current_a_per_cm": float(state["i_n"]),
                "hole_current_a_per_cm": float(state["i_p"]),
@@ -679,8 +688,8 @@ def _device_fingerprint(inputs) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
-def _provenance(cap, runner, *, scenario, outside, inputs, candidate_id=None,
-                device_file=None):
+def _provenance(cap, runner, *, scenario, outside, inputs, solver_status,
+                validation_status, candidate_id=None, device_file=None):
     """The evidence fields EVERY run records, wherever it was launched from.
 
     `run sweep` built its own three-key dict, so a sweep point silently
@@ -699,6 +708,8 @@ def _provenance(cap, runner, *, scenario, outside, inputs, candidate_id=None,
             # The screen uses each property's spread; the SOLVE takes the
             # nominal value alone. Defensible choice, indefensible silence.
             "uncertainty_treatment": "nominal-only",
+            "solver_status": solver_status,
+            "validation_status": validation_status,
             "validation_envelope": ("inside" if not outside
                                     else "; ".join(outside)),
             # The evidence claim, as data. `envelope_basis` was free text in
@@ -898,7 +909,21 @@ def _run_solve(out: cliout.Output, args) -> int:
     # is what a 0.2 V 2D solve did while the registry's own prose said that
     # current does not converge. Reported in re-review.
     outside = _envelope_breaches(cap, runner, inputs)
-    run_status = "converged-outside-validated-range" if outside else "converged"
+    # TWO contracts, deliberately separate. `solver_status` is whether the
+    # solver settled its own coupled system; `validation_status` is whether
+    # the answer is covered by evidence. Collapsing them into one word was
+    # how a run whose current was still moving reported the same "converged"
+    # as one that had settled to 1e-10.
+    # `solver_status` is deliberately still "the potential settled", because
+    # that is the only convergence claim currently backed by a defensible
+    # threshold. The terminal current's per-iteration change is MEASURED and
+    # recorded beside it (see pn2d.CURRENT_TOL for what is and is not
+    # established); turning it into a verdict needs a scale nobody has pinned
+    # down yet, and asserting one would be the failure this keeps finding.
+    solver_status = "converged"
+    validation_status = ("outside-validated-range" if outside else "inside")
+    run_status = (solver_status if not outside
+                  else f"{solver_status}-outside-validated-range")
     if outside:
         for line in outside:
             out.note(f"OUTSIDE THE VALIDATED RANGE: {line}")
@@ -910,7 +935,9 @@ def _run_solve(out: cliout.Output, args) -> int:
         inputs=inputs, solver=solver, metrics=metrics,
         provenance=_provenance(
             cap, runner, scenario=f"single bias {args.bias} V",
-            outside=outside, inputs=inputs, candidate_id=args.candidate_id,
+            outside=outside, inputs=inputs, solver_status=solver_status,
+            validation_status=validation_status,
+            candidate_id=args.candidate_id,
             device_file=Path(args.device).name if args.device else None),
         status=run_status, command=_recorded_command(),
         version=__version__, fields_data=fields,
@@ -1109,6 +1136,9 @@ def _run_sweep(out: cliout.Output, args) -> int:
                 provenance=_provenance(
                     cap, runner, scenario=f"sweep point {point}",
                     outside=breaches, inputs=inputs,
+                    solver_status="converged",
+                    validation_status=("outside-validated-range" if breaches
+                                       else "inside"),
                     device_file=(Path(args.device).name if args.device
                                  else None)),
                 status=row["status"], command=_recorded_command(),

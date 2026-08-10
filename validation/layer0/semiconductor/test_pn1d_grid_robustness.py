@@ -140,3 +140,37 @@ def test_the_node_estimate_matches_the_grid_it_predicts(h0, gamma):
     device = PNDiode1D(h0=h0, gamma=gamma)
     one_side = (len(device.build_grid()) + 1) // 2
     assert estimated_nodes(device.len_n, h0, gamma) == one_side
+
+
+def test_the_potential_step_is_not_a_claim_about_the_answer():
+    """The measurement behind the open convergence finding, run rather than
+    argued.
+
+    `max|dpsi| < 1e-9` is what both solvers stop on. It reports ~1e-13 at
+    every bias below, while the terminal current's change per outer iteration
+    differs by four orders of magnitude between them. A criterion that cannot
+    tell those apart is not a claim about the result — which is the reviewer's
+    point, and this is the evidence for it.
+
+    No threshold is asserted, because none is established: see
+    `pn2d.CURRENT_TOL` for the three normalisations that were tried and why
+    each failed. What IS asserted is the gap between the two measures, so the
+    finding cannot quietly disappear.
+    """
+    from tarhan.models.pn1d import PNDiode1D, solve_bias
+
+    device = PNDiode1D()
+    settled = solve_bias(device, 0.4)
+    marginal = solve_bias(device, 0.1)
+
+    # Both report a thoroughly converged potential...
+    assert settled["psi_step"] < 1e-9
+    assert marginal["psi_step"] < 1e-9
+
+    # ...and the currents behind them are in completely different states.
+    assert settled["current_rel_change"] < 1e-7
+    assert marginal["current_rel_change"] > 1e-5
+    assert marginal["current_rel_change"] > \
+        1000 * settled["current_rel_change"], \
+        "the two biases are no longer distinguishable by current change; if " \
+        "the solver improved, this test should be replaced by a real gate"

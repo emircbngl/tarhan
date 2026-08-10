@@ -414,9 +414,34 @@ def _contact_densities(n_dop_val, delta):
     return delta * delta / p_hat, p_hat
 
 
+#: See pn2d.CURRENT_TOL — one contract, one number.
+CURRENT_TOL = 1e-6
+
+
+def _edge_current(dev: PNDiode1D, x_hat, psi, n_h, p_h,
+                  with_scale: bool = False):
+    """Scaled edge current density. Extracted so the convergence check and the
+    reported result cannot drift apart: measuring convergence on a quantity
+    the caller never sees would be measuring the wrong thing."""
+    xp = backend.xp()
+    h = x_hat[1:] - x_hat[:-1]
+    dpsi = psi[1:] - psi[:-1]
+    Bp, Bm = bernoulli(dpsi), bernoulli(-dpsi)
+    mu_scale = max(dev.mu_n, dev.mu_p)
+    jn = (dev.mu_n / mu_scale) * (n_h[1:] * Bp - n_h[:-1] * Bm) / h
+    jp = (dev.mu_p / mu_scale) * (p_h[:-1] * Bp - p_h[1:] * Bm) / h
+    if with_scale:
+        # The drift and diffusion halves, before they cancel. Their size is
+        # the scale a change in the net current has to be judged against.
+        drift_n = (dev.mu_n / mu_scale) * (n_h[1:] * Bp + n_h[:-1] * Bm) / h
+        drift_p = (dev.mu_p / mu_scale) * (p_h[:-1] * Bp + p_h[1:] * Bm) / h
+        return jn + jp, xp.abs(drift_n) + xp.abs(drift_p)
+    return jn + jp
+
+
 def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
                gummel_tol: float = 1e-9, max_gummel: int = 60,
-               on_iteration=None):
+               current_tol: float = CURRENT_TOL, on_iteration=None):
     """Tek bias noktası; state=None ise dengeden başlar. Döner: durum sözlüğü.
 
     ``on_iteration(index, total)`` her Gummel dış adımının başında çağrılır.
@@ -459,6 +484,9 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
     n_h = delta * xp.exp(xp.clip(psi - phi_n, -700, 700))
     p_h = delta * xp.exp(xp.clip(phi_p - psi, -700, 700))
 
+    previous_current = None
+    current_change = float("inf")
+    psi_step = float("inf")
     for g in range(max_gummel):
         if on_iteration is not None:
             on_iteration(g, max_gummel)
@@ -480,24 +508,35 @@ def solve_bias(dev: PNDiode1D, v_applied: float, state=None,
             p_h = _continuity_solve(dev, x_hat, psi, "p", pL, pR, mup_hat)
         phi_n = psi - xp.log(n_h / delta)
         phi_p = psi + xp.log(p_h / delta)
-        if float(xp.max(xp.abs(psi - psi_old))) < gummel_tol:
+        psi_step = float(xp.max(xp.abs(psi - psi_old)))
+
+        # The same contract as pn2d: the step is not the answer. Measured on
+        # the mean edge current, which is what `j` reports.
+        total = float(xp.mean(_edge_current(dev, x_hat, psi, n_h, p_h)))
+        # See pn2d for why the cancelling case is named rather than normalised.
+        # See pn2d: raw, and meaningless at equilibrium by construction.
+        if previous_current is not None and total != 0.0:
+            current_change = abs(total - previous_current) / abs(total)
+        previous_current = total
+
+        if psi_step < gummel_tol:
             break
     else:
-        raise RuntimeError(f"Gummel yakınsamadı @ V={v_applied}")
+        # See pn2d: only an unsettled POTENTIAL is a failure.
+        if psi_step >= gummel_tol:
+            raise RuntimeError(
+                f"Gummel yakinsamadi @ V={v_applied}: "
+                f"max|dpsi|={psi_step:.3e} (tol {gummel_tol:.0e})")
 
-    # kenar akıları (ölçekli) + boyutlandırma
-    h = x_hat[1:] - x_hat[:-1]
-    dpsi = psi[1:] - psi[:-1]
-    Bp, Bm = bernoulli(dpsi), bernoulli(-dpsi)
+    j_hat = _edge_current(dev, x_hat, psi, n_h, p_h)
     mu_scale = max(dev.mu_n, dev.mu_p)
-    jn = (dev.mu_n / mu_scale) * (n_h[1:] * Bp - n_h[:-1] * Bm) / h
-    jp = (dev.mu_p / mu_scale) * (p_h[:-1] * Bp - p_h[1:] * Bm) / h
-    j_hat = jn + jp
     j_scale = dev.q * dev.ut * mu_scale * dev.C0 / dev.L_D     # A/cm^2
     return {"x_hat": x_hat, "psi": psi, "phi_n": phi_n, "phi_p": phi_p,
             "n_hat": n_h, "p_hat": p_h, "j_edges": j_hat * j_scale,
             "j": float(xp.mean(j_hat)) * j_scale, "v_hat": v_hat,
-            "gummel_iters": g + 1}
+            "gummel_iters": g + 1,
+            "psi_step": psi_step, "current_rel_change": current_change,
+}
 
 
 def iv_sweep(dev: PNDiode1D, voltages, **kw):

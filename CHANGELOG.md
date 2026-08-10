@@ -73,6 +73,12 @@ when a release is cut.
   "legacy" rather than refused as damaged.
 - `compare runs` named one-sided metrics only on stderr, so the JSON rows
   carried just the intersection.
+- Every run now records `psi_step` and `current_rel_change`, and provenance
+  separates `solver_status` from `validation_status`. The convergence
+  *threshold* remains unestablished and is documented as such rather than
+  guessed at.
+- Duplicate metric names in a coverage record were accepted and silently
+  dropped the earlier one.
 - `envelope_basis` was unvalidated free text with no machine link to the
   evidence, absent from `--format json` and absent from every artifact — so a
   run could not answer which evidence profile called it "inside". Runs now

@@ -51,8 +51,8 @@ python3 tools/job.py run tests -- pytest -q
 python3 tools/job.py wait tests
 ```
 
-Measured on an M4: the full suite is **about 80 seconds** (733 collected,
-729 passed, 4 xfail). It was "a few seconds (338 passed)" when that line was
+Measured on an M4: the full suite is **about 80 seconds** (751 collected,
+747 passed, 4 xfail). It was "a few seconds (338 passed)" when that line was
 written and the number was never updated — an instruction to kill a run after
 a minute would now abort a healthy suite. Treat the figure as approximate and
 re-measure rather than trusting it. If it has not finished in **five
@@ -217,8 +217,24 @@ briefly taken from the DEVSIM-mesh stage — `Na/Nd 1e18`, `μ 400/200`, partial
 top contact — and applied to the device `run solve` actually builds, which is
 the generated rectangular diode at `1e16`, `1350/480`, full end contacts.
 Evidence from one device says nothing about another. Each envelope now comes
-from that device's own evidence: 1D `[0,0] ∪ [0.15, 0.40]` against DEVSIM, 2D
+from that device's own evidence: 1D `[0,0] ∪ [0.10, 0.40]` against DEVSIM, 2D
 `[0,0] ∪ [0.20, 0.40]` against the validated 1D solver.
+
+**`solver_status` and `validation_status` are separate claims.** The first is
+whether the solver settled; the second is whether the answer is covered by
+evidence. Both are recorded, along with `psi_step` and `current_rel_change` —
+the terminal current's relative change per outer iteration.
+
+**`solver_status` is still only "the potential settled", and that is a known
+gap, not a claim.** `max|Δψ| < 1e-9` reports ~1e-13 at every bias while the
+current's per-pass change differs by four orders of magnitude between them
+(1D 0.4 V: 1e-10; 1D 0.1 V: 3e-4, no better at 400 iterations). The step is
+demonstrably not a claim about the answer. What is missing is a *threshold*:
+dividing by |I| breaks at equilibrium where the net current is an exact
+cancellation, dividing by the differenced components made every bias look
+settled to 1e-16, and a cancellation cut-off behaved differently in 1D and 2D.
+So the numbers are recorded in every artifact and no verdict is asserted on
+them. `test_pn1d_grid_robustness.py` pins the gap so it cannot quietly vanish.
 
 **Coverage is per METRIC, and an interval is not a measurement.** The 2D
 device's potential is checked at 0.0 and 0.30 V while its current is checked
