@@ -72,3 +72,31 @@ yayımlanacaktı.
 **Kural.** Aynı olguyu iki yerde tutan her şey ya tek kaynağa indirilir ya da
 aralarındaki tutarlılık bir testle çivilenir. Kontrol listesini satır numarasına
 değil olguya göre yaz: "pyproject satır 10" değil, "paketin bildirdiği sürüm".
+
+## Bir tolerans, tek makinede geçtiği için doğru değildir (2026-08-10)
+
+**Ne oldu.** `oracle.yml` ilk kez gerçekten çalıştı ve 3 test düştü. 2D I-V
+karşılaştırmasında TARHAN'ın 0.2 V'taki deşik akımı DEVSIM'e karşı CI'da 1.063,
+bu dizüstünde 1.011 çıktı. DEVSIM'in kendi sayısı iki platformda BİREBİR aynıydı
+(1.011424134349962) — oynayan taraf bizdik.
+
+**Kritik adım: sebebi aramak, toleransı gevşetmek değil.** `gummel_tol`
+sıkılaştırıldığında oran 1.011 → 1.011 → 1.0347 → 1.0273 (1e-9 → 1e-14) gitti,
+iterasyon 3 → 27. **Monoton olmayan bir sapma, yakınsamamış demektir.** Yani
+1e-9'da da yakınsamamıştı; bu makinedeki uyum şanstı, CI aynı desteden başka bir
+kart çekti.
+
+**Kural.** Bir eşik "burada geçiyor" diye doğrulanmış sayılmaz. Bir büyüklüğün
+gerçekten belirlenmiş olup olmadığını sınamanın en ucuz yolu, yakınsama
+ölçütünü sıkıp cevabın SABİT kalıp kalmadığına bakmaktır. Sabit kalmıyorsa
+yayımlanan iddia daraltılmalı — sayı düzeltilmeli, test silinmemeli.
+
+**Ne yapıldı.** Doğrulanmış aralık 0.3-0.5 V'a çekildi; 0.2 V hâlâ çözülüyor ve
+karşılaştırılıyor ama ölçümün destekleyebildiği bir bantla, ve neden öyle olduğu
+testin içinde yazıyor. README, capability registry ve DESIGN-2D §5 birlikte
+düzeltildi. Elektron akımı 0.2 V'ta kararlı ve hâlâ 1e-4'e çiviliyor.
+
+**İkinci ders: yayımlanmış bir CI dosyası çalıştırılmamış koddur.** oracle.yml
+üç birim testiyle "çürümeye karşı" korunuyordu ama hiç koşmamıştı; ilk koşuda
+DEVSIM'in BLAS bağımlılığı yüzünden daha ilk adımda patladı. Bir workflow'un
+yazılmış olması onun çalıştığı anlamına gelmez.

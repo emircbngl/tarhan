@@ -43,7 +43,15 @@ STAGE_TO_CAPABILITY = {
 #: an en dash and the registry with a hyphen, and pinning punctuation would make
 #: this fail for a reason that has nothing to do with the physics.
 PINNED_NUMBERS = ("1.8e-15", "0.953719", "3.350171660e-12", "8281",
-                  "1.000000000", "1.0119", "1.0134", "1.0114", "1.0126")
+                  "1.000000000",
+                  # The 2D-2 ideality endpoints, corrected after the first
+                  # cross-oracle CI run: the old 1.0119-1.0134 / 1.0114 range
+                  # included a 0.2 V point that is not converged. Both the
+                  # registry and §5 now quote the 0.3-0.5 V range.
+                  "1.0120", "1.0126", "1.0121",
+                  # ...and the numbers behind the exclusion, so the correction
+                  # cannot be quietly rolled back to a prettier range.
+                  "1.063", "1.0347")
 
 
 def _stage_rows():

@@ -138,7 +138,12 @@ REGISTRY: Tuple[Capability, ...] = (
                 "rectangular diode shape", "net doping",
                 "contact node sets", "bias"),
         produces=("psi, n, p on the mesh", "contact currents", "I-V sweep"),
-        limits=("the mesh must be Delaunay; the box method's positivity "
+        limits=("the terminal HOLE current is only reproducible above about "
+                "0.3 V; at 0.2 V it wanders by a few percent with the "
+                "platform and with the convergence tolerance, so an I-V claim "
+                "there is not supportable. The electron current is stable "
+                "everywhere",
+                "the mesh must be Delaunay; the box method's positivity "
                 "guarantee rests on it",
                 "one generated shape only — an axis-aligned rectangular pn "
                 "diode; any other geometry must be supplied as a mesh",
@@ -159,8 +164,12 @@ REGISTRY: Tuple[Capability, ...] = (
                      f"{_V}/semiconductor/test_2d1_pn2d_equilibrium.py"),
             Evidence("diode I-V against DEVSIM — the first stage that exercises "
                      "transverse transport",
-                     "I_n ratio 1.00000 (rel 2e-4) at every bias; ideality "
-                     "1.0119-1.0134 against DEVSIM's own 1.0114-1.0126",
+                     "over 0.3-0.5 V: I_n ratio 1.00000 (rel 2e-4) at every "
+                     "bias; ideality 1.0120-1.0126 against DEVSIM's own "
+                     "1.0121-1.0126. At 0.2 V the hole current is NOT "
+                     "converged: CI measured 1.063 against this laptop's "
+                     "1.011, and tightening gummel_tol moved it 1.011 -> "
+                     "1.0347 -> 1.0273 non-monotonically",
                      f"{_V}/semiconductor/test_2d2_pn2d_iv.py"),
             Evidence("electrostatic contact charge against DEVSIM's cap2d case",
                      "3.350171660e-12 C/cm from both codes, ratio 1.000000000, "
