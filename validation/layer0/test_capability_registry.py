@@ -327,6 +327,37 @@ def test_a_runnable_capability_reports_coverage_per_metric(capability_id):
     assert report["psi"] == "measured-point"
 
 
+@pytest.mark.parametrize("capability_id,metric,expected", [
+    # READ from the oracle modules, not inferred from prose. The 1D list was
+    # first written as a uniform 0.15..0.40 sweep derived from an evidence
+    # SENTENCE — it invented three biases nobody measures and omitted 0.1 V,
+    # which is measured. A coverage record that guesses its own points is
+    # worse than none, so these are pinned against the source of truth.
+    ("semiconductor.pn.drift-diffusion.1d.steady", "current_a_cm2",
+     (0.1, 0.2, 0.3, 0.4)),
+    ("semiconductor.pn.drift-diffusion.2d.steady", "current_a_cm2",
+     (0.2, 0.3, 0.4)),
+    ("semiconductor.pn.drift-diffusion.2d.steady", "psi", (0.0, 0.3)),
+])
+def test_the_measured_points_are_the_ones_the_oracle_actually_sweeps(
+        capability_id, metric, expected):
+    cover = {c.metric: c for c in get(capability_id).coverage}[metric]
+    assert cover.points == expected
+
+
+def test_the_1d_current_points_match_the_oracle_module():
+    """The strongest form: compare the record against the code that produces
+    the comparison, so a changed sweep cannot leave the claim behind."""
+    import sys
+
+    sys.path.insert(0, str(REPO / "validation" / "oracles"))
+    import devsim_pn1d_compare as oracle
+
+    cover = {c.metric: c for c in
+             get("semiconductor.pn.drift-diffusion.1d.steady").coverage}
+    assert cover["current_a_cm2"].points == tuple(sorted(oracle.VOLTS))
+
+
 def test_the_validation_profile_changes_when_the_evidence_does():
     """The id an artifact records so it can answer "which evidence said
     inside?" later. If it did not move with the claim it would be decoration."""

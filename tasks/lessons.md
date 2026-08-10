@@ -100,3 +100,26 @@ düzeltildi. Elektron akımı 0.2 V'ta kararlı ve hâlâ 1e-4'e çiviliyor.
 üç birim testiyle "çürümeye karşı" korunuyordu ama hiç koşmamıştı; ilk koşuda
 DEVSIM'in BLAS bağımlılığı yüzünden daha ilk adımda patladı. Bir workflow'un
 yazılmış olması onun çalıştığı anlamına gelmez.
+
+## Kanıt alanını kanıta bakmadan doldurmak (2026-08-10)
+
+**Ne oldu.** Capability kayıtlarına metrik başına "ölçülen bias noktaları"
+eklerken 2D listesini testin `@parametrize` satırlarından OKUDUM, 1D listesini
+ise registry'deki düzyazı kanıttan ("over 0.15-0.40 V") **türettim**:
+`(0.15, 0.20, 0.25, 0.30, 0.35, 0.40)`. Oracle'ın gerçek taraması
+`(0.1, 0.2, 0.3, 0.4)`. Yani hiç ölçülmemiş üç bias uydurdum ve ölçülen
+0.1 V'u dışarıda bıraktım — üstelik bunu, işi "ne ölçüldü" demek olan alanın
+içinde yaptım.
+
+**Neden kaçtı.** Yazdığım test yalnızca `evidence` dosyasının VAR olduğunu
+kontrol ediyordu. Dosyanın varlığı, içindeki sayıların iddia edilenler olduğunu
+söylemez. Kendi kontrolüm iddianın yanından geçiyordu.
+
+**Kural.** Bir alan "şu ölçüldü" diyorsa, değeri ölçümü üreten KODDAN
+gelmelidir; ölçümü anlatan cümleden değil. Kanıt sayıları elle kopyalanacaksa,
+onları üreten kaynağa karşı çivileyen bir test şart.
+
+**Ne yapıldı.** `devsim_pn1d_compare.VOLTS` tek doğruluk kaynağı olarak dışa
+açıldı ve registry ona karşı çivilendi; envelope da `[0.10, 0.40]` olarak
+düzeltildi. Bunu denetleyen bulmadı — fizik dürüstlük kapısı "bu sayıyı
+doğruladın mı?" diye sorunca ben kontrol ettim ve yanlış çıktı.

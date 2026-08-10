@@ -116,14 +116,21 @@ REGISTRY: Tuple[Capability, ...] = (
         # from an I-V range that starts at 0.15 V. Unlike the 2D case, the
         # device the evidence was collected on IS the device `run solve`
         # builds: PNDiode1D at its defaults.
-        envelope={"bias_v": ((0.0, 0.0), (0.15, 0.40))},
+        # [0.10, 0.40], not [0.15, 0.40]: the oracle sweeps 0.1 to 0.4.
+        envelope={"bias_v": ((0.0, 0.0), (0.10, 0.40))},
         envelope_basis="PNDiode1D at its defaults, against DEVSIM "
                        "(validation/layer0/semiconductor/test_oracle_devsim.py)",
         coverage=(
             MetricCoverage("psi", (0.0,),
                            f"{_V}/semiconductor/test_flagship_pn1d_gummel.py"),
-            MetricCoverage("current_a_cm2", (0.15, 0.20, 0.25, 0.30, 0.35,
-                                             0.40),
+            # (0.1, 0.2, 0.3, 0.4) — READ from devsim_pn1d_compare's `volts`,
+            # not inferred. The first version of this list said
+            # (0.15, 0.20, 0.25, 0.30, 0.35, 0.40): I derived a uniform sweep
+            # from the evidence prose "over 0.15-0.40 V" instead of opening
+            # the oracle. It invented three biases nobody measures and omitted
+            # 0.1 V, which is measured — a fabricated claim in the very field
+            # whose job is to say what was measured.
+            MetricCoverage("current_a_cm2", (0.1, 0.2, 0.3, 0.4),
                            f"{_V}/semiconductor/test_oracle_devsim.py"),
         ),
         source="models/pn1d.py",

@@ -15,9 +15,17 @@ import contextlib
 import io
 
 
+#: The biases this oracle sweeps. Promoted from two separate literals to one
+#: importable constant so the capability registry's coverage record can be
+#: pinned against the code that produces the comparison rather than against a
+#: sentence describing it — the registry once claimed a uniform 0.15-0.40
+#: sweep that does not exist here.
+VOLTS = (0.1, 0.2, 0.3, 0.4)
+
+
 def run_devsim_diode(na, nd, len_p, len_n, tau, *, ni=1e10, ut=0.0259,
                      eps_s=11.7 * 8.85e-14, q=1.6e-19, mu_n=1350.0, mu_p=480.0,
-                     h_junction=5e-7, h_contact=2e-5, volts=(0.1, 0.2, 0.3, 0.4)):
+                     h_junction=5e-7, h_contact=2e-5, volts=VOLTS):
     """DEVSIM'de aynı diyot; döner: (v_bi, {V: J[A/cm²]}). Her çağrı taze mesh kurar."""
     import devsim as ds
     from devsim.python_packages import simple_physics as sp
@@ -108,7 +116,7 @@ def compare(quiet: bool = True):
                                             tau_n=1e-8, tau_p=1e-8), tau=1e-8,
                               len_p=25e-4, len_n=25e-4),
     }
-    volts = (0.1, 0.2, 0.3, 0.4)
+    volts = VOLTS
     results = {}
     for name, cfg in configs.items():
         dev = cfg["dev"]
