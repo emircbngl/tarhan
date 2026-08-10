@@ -120,3 +120,23 @@ def test_a_grid_too_large_to_build_is_refused_before_it_is_built():
     with pytest.raises(ValueError, match="over the"):
         PNDiode1D(h0=1e-12, gamma=1.0)
     assert len(PNDiode1D().build_grid()) == 125
+
+
+@pytest.mark.parametrize("h0,gamma", [(5e-7, 1.06), (5e-7, 1.0), (1e-7, 1.02),
+                                      (2e-6, 1.5), (1e-8, 1.001), (5e-7, 1.3),
+                                      (1e-6, 1.1)])
+def test_the_node_estimate_matches_the_grid_it_predicts(h0, gamma):
+    """The guard is only as good as its arithmetic.
+
+    `estimated_nodes` decides whether a device may be built at all, so an
+    estimate that runs low lets a hang through and one that runs high refuses
+    a legitimate mesh. Checked against the real builder rather than trusted:
+    the first version under-counted by one or two nodes — the junction node
+    and a ceiling — which is nothing at the two-million limit and was still
+    wrong.
+    """
+    from tarhan.models.pn1d import PNDiode1D, estimated_nodes
+
+    device = PNDiode1D(h0=h0, gamma=gamma)
+    one_side = (len(device.build_grid()) + 1) // 2
+    assert estimated_nodes(device.len_n, h0, gamma) == one_side

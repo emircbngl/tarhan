@@ -55,8 +55,14 @@ def estimated_nodes(length: float, h0: float, gamma: float) -> float:
     error message and a process nobody can interrupt.
     """
     if gamma == 1.0:
-        return length / h0
-    return math.log1p((gamma - 1.0) * length / h0) / math.log(gamma)
+        steps = length / h0
+    else:
+        steps = math.log1p((gamma - 1.0) * length / h0) / math.log(gamma)
+    # +1 for the node at the junction itself, and a ceiling because a partial
+    # step still costs a node. Measured against build_grid across six (h0,
+    # gamma) pairs: without these the estimate under-counted by one or two,
+    # which is nothing at the limit but is still arithmetic that was wrong.
+    return math.ceil(steps) + 1
 
 
 @dataclass
