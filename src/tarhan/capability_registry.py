@@ -111,7 +111,10 @@ REGISTRY: Tuple[Capability, ...] = (
         # 0.15-0.40 V. Reported in re-review. Taken from that evidence rather
         # than from where the solver happens to converge — those are different
         # claims and only the first is validation.
-        envelope={"bias_v": (0.15, 0.40)},
+        # Equilibrium is separately validated (built-in potential to 0.57
+        # microvolt), so it is its own interval rather than collateral damage
+        # from an I-V range that starts at 0.15 V.
+        envelope={"bias_v": ((0.0, 0.0), (0.15, 0.40))},
         source="models/pn1d.py",
         inputs=("doping profile", "grid", "bias", "SRH lifetimes (optional)"),
         produces=("psi, n, p", "terminal current", "band diagram"),
@@ -148,7 +151,10 @@ REGISTRY: Tuple[Capability, ...] = (
         # ONLY the biases are covered: this says nothing about a device whose
         # doping or geometry differs from the one the evidence was collected
         # on, which is why the CLI flags any device override separately.
-        envelope={"bias_v": (0.30, 0.50)},
+        # Three regions, not one: equilibrium is validated against DEVSIM to
+        # 2.24e-16 V, 0.2 V is where the hole current stops being
+        # reproducible, and 0.3-0.5 V is the validated I-V range.
+        envelope={"bias_v": ((0.0, 0.0), (0.30, 0.50))},
         limits=("the terminal HOLE current is only reproducible above about "
                 "0.3 V; at 0.2 V it wanders by a few percent with the "
                 "platform and with the convergence tolerance, so an I-V claim "

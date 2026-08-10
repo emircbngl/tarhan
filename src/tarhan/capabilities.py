@@ -116,7 +116,13 @@ class Capability:
     #: can check itself against, and a 0.2 V solve was producing an artifact
     #: marked `validated` and `converged` while this registry's own prose said
     #: that very result does not converge. Reported in re-review.
-    envelope: Mapping[str, Tuple[float, float]] = field(default_factory=dict)
+    #: name -> a UNION of closed intervals. One interval per input could not
+    #: describe the evidence: 2D steady is validated at equilibrium (0 V), NOT
+    #: reproducible at 0.2 V, and validated again over 0.3-0.5 V. A single
+    #: [0.30, 0.50] therefore reported `outside-validated-range` for the
+    #: best-validated point in the capability. Reported in re-review.
+    envelope: Mapping[str, Tuple[Tuple[float, float], ...]] = field(
+        default_factory=dict)
 
     def outside_envelope(self, inputs) -> Tuple[str, ...]:
         """Which inputs fall outside the range the evidence covers.
@@ -127,14 +133,27 @@ class Capability:
         an artifact has to be able to make.
         """
         out = []
-        for name, (low, high) in sorted(self.envelope.items()):
+        for name, intervals in sorted(self.envelope.items()):
             if name not in inputs:
                 continue
             value = float(inputs[name])
-            if not (low <= value <= high):
+            if not any(low <= value <= high for low, high in intervals):
+                covered = " or ".join(f"[{low:g}, {high:g}]"
+                                      for low, high in intervals)
                 out.append(f"{name}={value:g} is outside the validated "
-                           f"[{low:g}, {high:g}]")
+                           f"{covered}")
         return tuple(out)
+
+    def envelope_json(self):
+        """The envelope as data, for a machine format.
+
+        Emitted as prose — "bias_v in [0.3, 0.5]" — it was visible and still
+        unusable: an automated consumer had to parse a sentence, which is the
+        one thing this project's output contract exists to prevent. Reported
+        in re-review.
+        """
+        return {name: {"intervals": [list(pair) for pair in intervals]}
+                for name, intervals in sorted(self.envelope.items())}
 
     def __post_init__(self) -> None:
         for name in ("domain", "family"):

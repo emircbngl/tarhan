@@ -16,7 +16,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Tuple
 
 import numpy as np
 
@@ -30,23 +30,30 @@ _CAP_COLUMNS = ("id", "status", "dimension", "time", "source", "envelope")
 
 def _envelope_text(cap) -> str:
     """The validated range as a string a machine format can carry."""
-    return "; ".join(f"{name} in [{low:g}, {high:g}]"
-                     for name, (low, high) in sorted(cap.envelope.items()))
+    return "; ".join(
+        f"{name} in " + " or ".join(f"[{low:g}, {high:g}]"
+                                    for low, high in intervals)
+        for name, intervals in sorted(cap.envelope.items()))
 
 
-def _cap_row(cap) -> dict:
+def _cap_row(cap, fmt: str = "table") -> dict:
     # `envelope` is on the record and was NOT in this dict, so a client could
     # not discover the valid range without running something and reading the
     # status back. A machine-readable limit that no machine format carries is
     # not machine-readable. Reported in re-review.
     return {"id": cap.id, "status": cap.status, "dimension": cap.dimension,
             "time": cap.time, "source": cap.source,
-            "envelope": _envelope_text(cap)}
+            # Structured for json — an automated consumer must not have to
+            # parse "bias_v in [0.3, 0.5]" out of a sentence, which is the one
+            # thing the output contract exists to prevent. Text elsewhere,
+            # because a table cell and a CSV field cannot hold a nested map.
+            "envelope": (cap.envelope_json() if fmt == "json"
+                         else _envelope_text(cap))}
 
 
 def _capabilities_list(out: cliout.Output) -> int:
     caps = all_capabilities()
-    out.emit([_cap_row(c) for c in caps], _CAP_COLUMNS)
+    out.emit([_cap_row(c, out.fmt) for c in caps], _CAP_COLUMNS)
     stuck = sum(not c.runnable for c in caps)
     out.note(f"{len(caps)} capabilities, {stuck} of them not runnable today. "
              "`tarhan capabilities show <id>` says why.")
@@ -617,6 +624,37 @@ def _solver_numbers_or_status(out: cliout.Output, args, default_max_iter):
     return {"tol": tol, "bias": bias, "max_iter": max_iter}
 
 
+def _off_reference_device(runner, inputs) -> Tuple[str, ...]:
+    """Which device fields differ from the ones the evidence was collected on.
+
+    Computed from the RESOLVED device rather than from which flags were
+    passed. The first version asked "was --device or --candidate given?", was
+    added to `run solve`, and was not added to `run sweep` — so a swept device
+    override came back plainly `converged` while its own provenance said
+    "overridden". Reported in re-review. Asking the resolved values also
+    catches `--vary mu_n=...`, which no flag check would have.
+    """
+    reference = runner.device()
+    drifted = []
+    for name, default in sorted(reference.items()):
+        if name not in inputs:
+            continue
+        if inputs[name] != default:
+            drifted.append(f"{name}={inputs[name]!r} differs from the "
+                           f"reference {default!r}")
+    return tuple(drifted)
+
+
+def _envelope_breaches(cap, runner, inputs) -> Tuple[str, ...]:
+    """Everything that puts a run outside the evidence: bias AND device."""
+    out = list(cap.outside_envelope(inputs))
+    drifted = _off_reference_device(runner, inputs)
+    if drifted:
+        out.append("the device differs from the reference device the evidence "
+                   "was collected on (" + "; ".join(drifted) + ")")
+    return tuple(out)
+
+
 def _provenance(cap, runner, *, scenario, outside, candidate_id=None,
                 device_file=None):
     """The evidence fields EVERY run records, wherever it was launched from.
@@ -822,17 +860,7 @@ def _run_solve(out: cliout.Output, args) -> int:
     # as one — but it must not be reported as plain `converged` either, which
     # is what a 0.2 V 2D solve did while the registry's own prose said that
     # current does not converge. Reported in re-review.
-    outside = list(cap.outside_envelope(inputs))
-    if args.device or args.candidate:
-        # The envelope covers the INPUTS it names — biases — and says nothing
-        # about a device whose doping, mobilities or geometry differ from the
-        # one the evidence was collected on. A 0.4 V solve of a completely
-        # different material was coming back plainly `converged`. Reported in
-        # re-review. Any override moves the run off the reference device, and
-        # that is a fact about the run, not a judgement about the answer.
-        outside.append("the device differs from the reference device the "
-                       "evidence was collected on")
-    outside = tuple(outside)
+    outside = _envelope_breaches(cap, runner, inputs)
     run_status = "converged-outside-validated-range" if outside else "converged"
     if outside:
         for line in outside:
@@ -1016,9 +1044,10 @@ def _run_sweep(out: cliout.Output, args) -> int:
             forge.tick(within=(index + 1) / len(points),
                        detail=f"point {index + 1}/{len(points)}")
 
+            breaches = _envelope_breaches(cap, runner, inputs)
             row = {**point,
-                   "status": ("converged-outside-validated-range"
-                              if cap.outside_envelope(inputs) else "converged"),
+                   "status": ("converged-outside-validated-range" if breaches
+                              else "converged"),
                    "run_id": ""}
             try:
                 metrics, fields = runner.solve({**inputs, **solver})
@@ -1042,7 +1071,7 @@ def _run_sweep(out: cliout.Output, args) -> int:
                 inputs=inputs, solver=solver, metrics=metrics,
                 provenance=_provenance(
                     cap, runner, scenario=f"sweep point {point}",
-                    outside=cap.outside_envelope(inputs),
+                    outside=breaches,
                     device_file=(Path(args.device).name if args.device
                                  else None)),
                 status=row["status"], command=_recorded_command(),
@@ -1274,7 +1303,7 @@ def _capabilities_show(out: cliout.Output, capability_id: str) -> int:
             lines.append(f"{'':<16}  test:     {ev.test}")
         out.detail("\n".join(lines) + "\n")
     else:
-        row = dict(_cap_row(cap))
+        row = dict(_cap_row(cap, out.fmt))
         row.update({"inputs": list(cap.inputs), "produces": list(cap.produces),
                     "limits": list(cap.limits), "reason": cap.reason,
                     "needs": cap.needs, "does_not_mean": cap.does_not_mean,

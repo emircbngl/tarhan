@@ -73,6 +73,13 @@ when a release is cut.
   "legacy" rather than refused as damaged.
 - `compare runs` named one-sided metrics only on stderr, so the JSON rows
   carried just the intersection.
+- A device override in `run sweep` still reported `converged`: the
+  reference-device check was added to `solve` and not to `sweep`. It is
+  computed from the resolved device now, so `--vary mu_n=…` counts too.
+- The envelope was one interval per input, so equilibrium — the
+  best-validated point in either capability — reported
+  `outside-validated-range`. It is a union of intervals now.
+- The envelope reached `--format json` as prose. It is structured data.
 - `run sweep` built its own three-key provenance, so a sweep point overwrote a
   solve of the same problem with a poorer record. Both use one producer now.
 - The 1D capability had no envelope at all, and a device or candidate override

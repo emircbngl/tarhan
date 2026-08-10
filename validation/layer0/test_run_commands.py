@@ -1358,8 +1358,11 @@ def test_the_envelope_is_discoverable_without_running_anything():
     proc = run("--format", "json", "capabilities", "show", PN2D)
     assert proc.returncode == cliout.EXIT_OK
     record = json.loads(proc.stdout)[0]
-    assert "bias_v" in record["envelope"]
-    assert "0.3" in record["envelope"] and "0.5" in record["envelope"]
+    # STRUCTURED, not prose. It was emitted as "bias_v in [0.3, 0.5]", which
+    # is visible and still unusable: an automated consumer had to parse a
+    # sentence, the one thing the output contract exists to prevent.
+    assert record["envelope"] == {"bias_v": {"intervals": [[0.0, 0.0],
+                                                           [0.3, 0.5]]}}
 
     listed = json.loads(run("--format", "json", "capabilities",
                             "list").stdout)
@@ -1374,3 +1377,60 @@ def test_a_non_finite_screen_condition_is_refused(tmp_path, value):
                "--at", f"bias_v={value}", "--require", "mu_n>=1")
     assert proc.returncode == cliout.EXIT_INPUT
     assert "finite" in proc.stderr
+
+
+# --- the fifth audit ------------------------------------------------------
+
+def test_a_swept_device_override_also_leaves_the_reference_device(tmp_path):
+    """The check was added to solve and not to sweep, so a swept override came
+    back plainly `converged` while its own provenance said "overridden" —
+    an artifact asserting two contradictory things at once. Reported in
+    re-review."""
+    spec = tmp_path / "other.json"
+    spec.write_text('{"mu_n": 700.0}', encoding="utf-8")
+    rows = json.loads(run("--format", "json", "run", "sweep", PN2D,
+                          "--device", str(spec), "--vary", "bias_v=0.3,0.4",
+                          "--output", str(tmp_path)).stdout)
+    assert [r["status"] for r in rows] == \
+        ["converged-outside-validated-range"] * 2
+    provenance = json.loads((tmp_path / rows[0]["run_id"]
+                             / "provenance.json").read_text())
+    assert "reference device" in provenance["validation_envelope"]
+
+
+def test_sweeping_a_device_axis_leaves_the_reference_device(tmp_path):
+    """The reason the check reads the RESOLVED device rather than the flags:
+    no flag check would catch `--vary mu_n=...`."""
+    rows = json.loads(run("--format", "json", "run", "sweep", PN2D,
+                          "--vary", "mu_n=400,700", "--bias", "0.4",
+                          "--output", str(tmp_path)).stdout)
+    assert all(r["status"] == "converged-outside-validated-range"
+               for r in rows)
+
+
+def test_a_plain_sweep_on_the_reference_device_stays_inside(tmp_path):
+    """The flag must mean something: it cannot fire for every sweep."""
+    rows = json.loads(run("--format", "json", "run", "sweep", PN2D,
+                          "--vary", "bias_v=0.3,0.4", "--output",
+                          str(tmp_path)).stdout)
+    assert all(r["status"] == "converged" for r in rows)
+
+
+@pytest.mark.parametrize("capability", [PN1D, PN2D])
+def test_equilibrium_is_inside_the_envelope(tmp_path, capability):
+    """A single interval per input reported `outside-validated-range` for 0 V
+    — the best-validated point in either capability. 2D equilibrium is
+    checked against DEVSIM to 2.24e-16 V. The envelope is a union of
+    intervals now, so evidence with a gap in it can be stated as one."""
+    record = json.loads(run("--format", "json", "run", "solve", capability,
+                            "--bias", "0", "--output",
+                            str(tmp_path)).stdout)[0]
+    assert record["status"] == "converged"
+
+
+def test_the_gap_between_the_intervals_is_still_outside(tmp_path):
+    """Adding equilibrium must not swallow the 0.2 V exclusion with it."""
+    record = json.loads(run("--format", "json", "run", "solve", PN2D,
+                            "--bias", "0.2", "--output",
+                            str(tmp_path)).stdout)[0]
+    assert record["status"] == "converged-outside-validated-range"

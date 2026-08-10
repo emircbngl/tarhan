@@ -202,16 +202,20 @@ in that state: there is no bias waveform to give them.
 
 **A run says whether it is inside the evidence.** Capability records carry a
 machine-readable `envelope`, visible in `capabilities list/show` so a client
-can read it before running anything — 1D steady `bias_v` in [0.15, 0.40], 2D
-steady [0.30, 0.50], both taken from the cross-oracle evidence rather than
-from where the solver happens to converge. A run outside it still runs and
-still writes an artifact, with status `converged-outside-validated-range` and
-the breach named in provenance.
+can read it before running anything — **structured** in `--format json`
+(`{"bias_v": {"intervals": [[0.0, 0.0], [0.3, 0.5]]}}`), text elsewhere.
 
-**Any `--device` or `--candidate` override also leaves the envelope**, because
-the envelope covers the inputs it NAMES — biases — and says nothing about a
-device whose doping, mobilities or geometry differ from the one the evidence
-was collected on. Outside the envelope does not mean the answer is wrong; it
+It is a **union of intervals**, because the evidence is not one range: 2D
+steady is validated at equilibrium, NOT reproducible at 0.2 V, and validated
+again over 0.3–0.5 V. 1D steady is `[0, 0] ∪ [0.15, 0.40]`. A run outside
+still runs and still writes an artifact, with status
+`converged-outside-validated-range` and the breach named in provenance.
+
+**A device that differs from the reference device also leaves the envelope**,
+because the envelope covers the inputs it NAMES — biases — and says nothing
+about different doping, mobilities or geometry. This is computed from the
+RESOLVED device rather than from which flags were passed, so `--vary mu_n=…`
+counts too, and it applies to `run sweep` exactly as to `run solve`. Outside the envelope does not mean the answer is wrong; it
 means nothing has established that it is right, and those are different
 claims.
 
