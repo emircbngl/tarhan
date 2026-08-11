@@ -77,6 +77,13 @@ when a release is cut.
   so a 2D run publishing nine metrics against two records read fully-covered
   and `unverified` was unreachable. Published metrics without a record are
   `unverified` now; the run's own diagnostics are excluded.
+- Sweep provenance said `device: "...defaults"` while the same artifact's
+  `validation_envelope` said the device was overridden — one field described
+  the run, the other the command line. Both derive from the resolved device
+  now.
+- The "settles to a level" claim is withdrawn: no statistic available
+  distinguishes "converging very slowly" from "wandering at a floor" on 119
+  points. Only the ~1e5 separation is asserted.
 - The "neither sequence is still falling" assertion permitted a tenfold
   fall, so a strictly decreasing `0.99**i` passed it. It uses a structural
   statistic now — the fraction of the second half above the first half's

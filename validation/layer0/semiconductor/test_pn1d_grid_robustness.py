@@ -185,39 +185,40 @@ def test_the_potential_step_is_not_a_claim_about_the_answer():
         "test with a real convergence gate rather than loosening it")
 
 
-def test_the_current_settles_to_a_level_that_depends_on_bias():
+def test_the_two_biases_stay_orders_apart_after_forced_iterations():
     """The sequence, not one number off the end of it.
 
     The previous version of this test asked for `max_gummel=8` versus `200`
     and compared the results. The solver exits early on the potential
     tolerance, so BOTH calls ran three iterations and returned identical
-    floats: it compared a number with itself and asserted `<=` on equality.
-    Reported in review, and it is the second test this session that did not
-    test its own claim.
+    floats: it compared a number with itself. `min_gummel` exists so a
+    diagnostic can force iterations past that exit.
 
-    `min_gummel` exists so a diagnostic can force iterations past that exit.
-    Over 119 of them neither bias decays; each settles to a LEVEL and varies
-    within it:
+    WHAT THIS ASSERTS, and nothing more: after 119 forced iterations the two
+    biases' tail medians stay about 1e5 apart, while max|dpsi| reports ~1e-13
+    for both. That is the finding — the potential step is not a claim about
+    the answer — and it is all the data supports.
 
-        0.1 V   ~2e-6 .. 9e-4, median ~2e-4
-        0.4 V   ~1e-10 .. 9e-9, median ~2e-9
+    WHAT IT NO LONGER ASSERTS is that either sequence has "settled to a level"
+    or "stopped decaying". Four attempts failed at that, each caught in
+    review:
 
-    Calling those levels "noise floors" is an interpretation and is marked
-    UNVERIFIED — physics_verify is unavailable. What is MEASURED is the
-    separation, about 1e5, while the potential step reports ~1e-13 for both.
-    The test name said "noise floor" for a while after the claim had been
-    withdrawn from the docstring; it does not now.
+      1. `marginal > 1e-5` — fitted to one machine, red on ubuntu.
+      2. `settled < 1e-7` — the same mistake, left one line below the comment
+         describing it.
+      3. `second > first / 10` — permits a tenfold fall, so a strictly
+         decreasing `0.99**i` passed at 0.578.
+      4. the overlap fraction below — fails in BOTH directions: a perfect
+         constant plateau [1, 1, ...] scores 0.0 and would be REJECTED, while
+         a decaying oscillation exp(-0.002i)(1 + 0.4 sin(2*pi*i/7)) scores
+         0.40 and would be ACCEPTED.
 
-    Two things are asserted, and the second one took three tries to get
-    right. `second > first / 10` was the previous attempt and it permits a
-    tenfold fall, so `0.99**i` — strictly decreasing — passed it at 0.578.
-    Reported in review with that counterexample, which is now part of the
-    test.
-
-    The statistic used instead is structural rather than fitted: what
-    fraction of the second half exceeds the median of the first half? For ANY
-    non-increasing sequence that is exactly zero, because every later value
-    lies below every earlier one. For these solves it is 0.39 and 0.48.
+    The real 0.1 V run has half-medians 3.93e-4 -> 2.02e-4 -> 1.85e-4 ->
+    1.78e-4 -> 1.38e-4 -> 1.44e-4 across sixths. That is a slow decline, not
+    a level, and no statistic I have distinguishes "converging very slowly"
+    from "wandering at a floor" on 119 points. Saying so is the honest
+    position; the overlap is measured below as a DESCRIPTION, with no verdict
+    attached.
     """
     import statistics
 
@@ -242,25 +243,15 @@ def test_the_current_settles_to_a_level_that_depends_on_bias():
         f"the two levels differ by only {separation:.0f}x; if the solver "
         "improved, replace this with a real convergence gate")
 
-    # 2. Neither one is still DECAYING.
-    def revisits_earlier_levels(values):
-        """Fraction of the second half above the first half's median.
-
-        Zero for any non-increasing sequence, by construction. That is what
-        makes this a structural test rather than a threshold fitted to a
-        machine, which is what the previous two attempts were.
-        """
-        half = len(values) // 2
-        reference = statistics.median(values[:half])
-        return sum(1 for x in values[half:] if x > reference) / len(values[half:])
-
-    # The counterexample from the review, kept so the statistic has to keep
-    # discriminating: strictly decreasing, and it passed the old assertion.
-    assert revisits_earlier_levels([0.99 ** i for i in range(109)]) == 0.0
-
-    for name, values in (("0.1 V", marginal), ("0.4 V", settled)):
-        revisited = revisits_earlier_levels(values)
-        assert revisited > 0.1, (
-            f"{name} revisits its earlier level in only {revisited:.0%} of "
-            "the second half, so it may be converging rather than sitting at "
-            "a level — re-examine the finding rather than loosening this")
+    # 2. Both halves of each run are ALSO orders apart from the other bias.
+    #    This is the separation again, measured on halves rather than on the
+    #    whole tail, so it cannot be an artefact of one window. It is not a
+    #    claim about decay — see the docstring for why no such claim is made.
+    for label, cut in (("first half", slice(None, len(marginal) // 2)),
+                       ("second half", slice(len(marginal) // 2, None))):
+        apart = (statistics.median(marginal[cut])
+                 / statistics.median(settled[cut]))
+        assert apart > 100, (
+            f"in the {label} the two biases are only {apart:.0f}x apart; the "
+            "separation is the whole finding, so re-examine it rather than "
+            "loosening this")

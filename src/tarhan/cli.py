@@ -758,10 +758,17 @@ def _provenance(cap, runner, *, scenario, outside, inputs, solver_status,
     richer record with the poorer one. Reported in re-review. One producer, so
     the two cannot disagree about what a result has to carry.
     """
-    overridden = bool(device_file) or bool(candidate_id)
+    # Derived from the RESOLVED device, like the envelope check, not from
+    # which flags were passed. `--vary mu_n=700` produced an artifact saying
+    # `device: "...defaults"` and `validation_envelope: "mu_n=700 differs from
+    # reference 1350.0"` at the same time — one field describing the run and
+    # the other describing the command line. Reported in review, and the same
+    # flags-versus-resolved-inputs split that was fixed in the envelope check
+    # and not here.
+    drift = _off_reference_device(runner, inputs)
     return {"model": cap.source,
-            "device": (f"{runner.describe}, overridden" if overridden
-                       else runner.describe),
+            "device": (f"{runner.describe}, overridden: "
+                       + "; ".join(drift) if drift else runner.describe),
             "candidate": candidate_id or "none",
             "device_file": device_file or "none",
             # The screen uses each property's spread; the SOLVE takes the

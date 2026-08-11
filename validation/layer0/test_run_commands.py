@@ -1658,3 +1658,32 @@ def test_min_gummel_keeps_its_own_promise(model, kwargs):
 
     with pytest.raises(ValueError):
         solve_bias(device, bias, **kwargs)
+
+
+def test_the_device_field_and_the_envelope_field_agree(tmp_path):
+    """One artifact said `device: "...defaults"` and, in the same file,
+    `validation_envelope: "mu_n=700 differs from reference 1350.0"`.
+
+    `_off_reference_device` read the resolved inputs while `_provenance` read
+    the command-line flags, so `--vary mu_n=` was invisible to one of them.
+    Reported in review — the same flags-versus-resolved split that was fixed
+    in the envelope check and not here.
+    """
+    rows = json.loads(run("--format", "json", "run", "sweep", PN2D,
+                          "--vary", "mu_n=400,700", "--bias", "0.4",
+                          "--output", str(tmp_path)).stdout)
+    for row in rows:
+        provenance = json.loads((tmp_path / row["run_id"]
+                                 / "provenance.json").read_text())
+        assert "overridden" in provenance["device"]
+        assert "mu_n" in provenance["device"]
+        assert "reference device" in provenance["validation_envelope"]
+
+    # ...and a run on the reference device says so plainly, in both fields.
+    plain = json.loads(run("--format", "json", "run", "solve", PN2D,
+                           "--bias", "0.4", "--output",
+                           str(tmp_path)).stdout)[0]
+    provenance = json.loads((tmp_path / plain["run_id"]
+                             / "provenance.json").read_text())
+    assert "overridden" not in provenance["device"]
+    assert provenance["validation_envelope"] == "inside"

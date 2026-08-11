@@ -243,10 +243,11 @@ from a measurement.
 
 **The convergence THRESHOLD is still a known gap, not a claim.** `max|Δψ| < 1e-9` reports ~1e-13 at every bias while the
 current's per-pass change differs by four orders of magnitude between them
-— with `min_gummel` forcing 119 iterations, neither bias decays: each settles
-to a LEVEL and varies within it (0.1 V median ~2e-4; 0.4 V median ~2e-9).
-Calling those levels "noise floors" is an interpretation and is marked
-UNVERIFIED; the *separation*, about 1e5, is what is measured. The step is
+— with `min_gummel` forcing 119 iterations the two biases' tail medians stay
+about 1e5 apart (0.1 V ~2e-4, 0.4 V ~2e-9). That separation is what is
+measured, and it is all that is claimed: whether either sequence has stopped
+decaying or is merely converging very slowly is NOT established, and four
+attempts to assert it were each wrong in a different direction. The step is
 demonstrably not a claim about the answer. What is missing is a *threshold*:
 dividing by |I| breaks at equilibrium where the net current is an exact
 cancellation, dividing by the differenced components made every bias look
