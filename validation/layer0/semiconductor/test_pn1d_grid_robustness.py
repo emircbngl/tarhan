@@ -142,47 +142,40 @@ def test_the_node_estimate_matches_the_grid_it_predicts(h0, gamma):
     assert estimated_nodes(device.len_n, h0, gamma) == one_side
 
 
-def test_the_potential_step_is_not_a_claim_about_the_answer():
-    """The measurement behind the open convergence finding, run rather than
-    argued.
+def test_the_potential_step_does_not_track_the_current_diagnostic():
+    """Two biases, one stopping criterion, two very different diagnostics.
 
-    `max|dpsi| < 1e-9` is what both solvers stop on. It reports ~1e-13 at
-    every bias below, while the terminal current's change per outer iteration
-    differs by four orders of magnitude between them. A criterion that cannot
-    tell those apart is not a claim about the result — which is the reviewer's
-    point, and this is the evidence for it.
+    Both stop well inside `gummel_tol`, and their `current_rel_change` values
+    differ by orders of magnitude. That is the whole finding: the quantity the
+    solver stops on does not track the quantity that describes the answer.
 
-    No threshold is asserted, because none is established: three
-    normalisations were tried and each failed (dividing by |I| breaks at
-    equilibrium, dividing by the differenced components flattens everything to
-    1e-16, and a cancellation cut-off behaved differently in 1D and 2D). What
-    IS asserted is the gap between the two measures, so the finding cannot
-    quietly disappear.
+    This test used to say more. It called the two runs `settled` and
+    `marginal`, and its docstring said "one bias settles and the other does
+    not" — the exact claim withdrawn from the test below it, left standing
+    here because I fixed one of the two and reported the claim gone.
+    Reported in review, and the fourth time this cycle a change landed on one
+    of two symmetric places.
+
+    Without a threshold, a ratio between two diagnostics cannot say which run
+    converged. It says they differ, and that is all that is asserted.
     """
     from tarhan.models.pn1d import PNDiode1D, solve_bias
 
     device = PNDiode1D()
-    settled = solve_bias(device, 0.4)
-    marginal = solve_bias(device, 0.1)
+    low = solve_bias(device, 0.1)
+    high = solve_bias(device, 0.4)
 
-    # Both report a thoroughly converged potential...
-    assert settled["psi_step"] < 1e-9
-    assert marginal["psi_step"] < 1e-9
+    # Both satisfied the stopping criterion the solver actually uses.
+    assert low["psi_step"] < 1e-9
+    assert high["psi_step"] < 1e-9
 
-    # ...and the currents behind them are in completely different states.
-    #
-    # Every bound here is a RATIO. The first version asserted
-    # `marginal > 1e-5`, measured 3.49e-04 on the author's machine and failed
-    # CI at 4.29e-06 on ubuntu; the second still carried
-    # `settled < 1e-7`, which is the same mistake left in place — both were
-    # caught in review. The finding is never a magnitude, it is that one bias
-    # settles and the other does not, and only a ratio survives a different
-    # LAPACK.
-    ratio = marginal["current_rel_change"] / settled["current_rel_change"]
+    # And the current diagnostic behind them is nowhere near each other.
+    # Measured 3.49e-4 against 2.80e-9; asserted as a ratio, because the
+    # magnitudes move with the LAPACK and the separation does not.
+    ratio = low["current_rel_change"] / high["current_rel_change"]
     assert ratio > 100, (
-        f"the two biases differ by only {ratio:.1f}x in current change and "
-        "are no longer distinguishable; if the solver improved, replace this "
-        "test with a real convergence gate rather than loosening it")
+        f"the two diagnostics differ by only {ratio:.0f}x; if the solver "
+        "improved, replace this with a real convergence gate")
 
 
 def test_the_two_biases_stay_orders_apart_after_forced_iterations():
@@ -195,8 +188,9 @@ def test_the_two_biases_stay_orders_apart_after_forced_iterations():
     diagnostic can force iterations past that exit.
 
     WHAT THIS ASSERTS, and nothing more: after 119 forced iterations the two
-    biases' tail medians stay about 1e5 apart, while max|dpsi| reports ~1e-13
-    for both. That is the finding — the potential step is not a claim about
+    biases' tail medians stay about 1e5 apart (measured 9.7e4 whole, 1.1e5
+    first half, 8.7e4 second), while both runs' max|dpsi| sits near 6e-14 —
+    and both of those are now CHECKED, not quoted. That is the finding — the potential step is not a claim about
     the answer — and it is all the data supports.
 
     WHAT IT NO LONGER ASSERTS is that either sequence has "settled to a level"
@@ -233,12 +227,24 @@ def test_the_two_biases_stay_orders_apart_after_forced_iterations():
         values = [x for x in state["current_history"] if x is not None]
         assert len(values) >= passes - 1, \
             f"asked for {passes} iterations and got {len(values)}"
+        # The docstring's "while max|dpsi| reports ~1e-13" was quoted and
+        # never checked — this function threw the potential step away.
+        # Reported in review. Measured 6.04e-14 and 5.51e-14 on the forced
+        # path; the bound is loose because the magnitude moves with the
+        # LAPACK, but it has to be checked rather than asserted in prose.
+        assert state["psi_step"] < 1e-11, (
+            f"at {bias} V the forced run's psi_step is {state['psi_step']:.1e}, "
+            "so the premise that both biases satisfy the potential criterion "
+            "no longer holds")
         return values[10:]           # past the transient
 
-    marginal, settled = history(0.1), history(0.4)
+    # Named by their BIAS, not by a verdict. `marginal` and `settled` were
+    # the previous names and they carried the withdrawn claim into every line
+    # that used them.
+    low_bias, high_bias = history(0.1), history(0.4)
 
     # 1. The two levels are separated. This is the finding.
-    separation = statistics.median(marginal) / statistics.median(settled)
+    separation = statistics.median(low_bias) / statistics.median(high_bias)
     assert separation > 100, (
         f"the two levels differ by only {separation:.0f}x; if the solver "
         "improved, replace this with a real convergence gate")
@@ -247,10 +253,10 @@ def test_the_two_biases_stay_orders_apart_after_forced_iterations():
     #    This is the separation again, measured on halves rather than on the
     #    whole tail, so it cannot be an artefact of one window. It is not a
     #    claim about decay — see the docstring for why no such claim is made.
-    for label, cut in (("first half", slice(None, len(marginal) // 2)),
-                       ("second half", slice(len(marginal) // 2, None))):
-        apart = (statistics.median(marginal[cut])
-                 / statistics.median(settled[cut]))
+    for label, cut in (("first half", slice(None, len(low_bias) // 2)),
+                       ("second half", slice(len(low_bias) // 2, None))):
+        apart = (statistics.median(low_bias[cut])
+                 / statistics.median(high_bias[cut]))
         assert apart > 100, (
             f"in the {label} the two biases are only {apart:.0f}x apart; the "
             "separation is the whole finding, so re-examine it rather than "

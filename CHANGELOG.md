@@ -85,10 +85,11 @@ when a release is cut.
   distinguishes "converging very slowly" from "wandering at a floor" on 119
   points. Only the ~1e5 separation is asserted.
 - The "neither sequence is still falling" assertion permitted a tenfold
-  fall, so a strictly decreasing `0.99**i` passed it. It uses a structural
-  statistic now — the fraction of the second half above the first half's
-  median, which is exactly zero for any non-increasing sequence — and the
-  counterexample is part of the test.
+  fall, so a strictly decreasing `0.99**i` passed it. Its replacement — an
+  overlap statistic — failed in the other direction, accepting a decaying
+  oscillation and rejecting a constant plateau, and was removed with the
+  claim itself. This entry described that statistic as current after it had
+  been deleted.
 - The outside-validated-range terminal branch still said "the solve
   converged" — the fix had landed on the inner path only.
 - `min_gummel > max_gummel` was accepted and silently returned fewer
