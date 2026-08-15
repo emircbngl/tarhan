@@ -77,6 +77,14 @@ when a release is cut.
   so a 2D run publishing nine metrics against two records read fully-covered
   and `unverified` was unreachable. Published metrics without a record are
   `unverified` now; the run's own diagnostics are excluded.
+- A repeated `--at` condition in `candidate screen` silently kept the last
+  value, so reversing two otherwise identical arguments changed the verdict
+  and both spellings exited 0 (issue #2). Refused now, naming both values.
+- `run sweep` recomputed the build/environment snapshot for every point: an
+  11-point sweep hashed the package source 11 times and spawned 22 git
+  subprocesses, 0.295 s against 0.018 s for all eleven solves (issue #4). One
+  snapshot per command now — 2 subprocesses — with `write_run()` still
+  self-computing by default for standalone callers.
 - Sweep provenance said `device: "...defaults"` while the same artifact's
   `validation_envelope` said the device was overridden — one field described
   the run, the other the command line. Both derive from the resolved device

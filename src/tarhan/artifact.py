@@ -333,7 +333,8 @@ def write_run(root, *, capability: str, capability_status: str,
               status: str, command: str, version: str,
               fields_data: Optional[Mapping[str, Any]] = None,
               stdout: str = "", report: str = "", notes: str = "",
-              candidate_snapshot: Optional[Mapping[str, Any]] = None) -> Path:
+              candidate_snapshot: Optional[Mapping[str, Any]] = None,
+              build_snapshot: Optional[Mapping[str, Any]] = None) -> Path:
     """Write one run directory and return its path.
 
     The directory is named by :func:`run_id`, so re-running the same problem
@@ -342,7 +343,15 @@ def write_run(root, *, capability: str, capability_status: str,
     to tell which was meant.
     """
     problem = run_id(capability, inputs, solver)
-    env = environment()
+    # A caller running a BATCH may pass one snapshot for the whole command.
+    # Computing it per run made an 11-point sweep hash the package source
+    # eleven times and spawn 22 git subprocesses — 0.295 s of a 0.917 s
+    # sweep, against 0.018 s for all eleven solves. Issue #4.
+    #
+    # The default stays self-computing so a standalone caller is unaffected,
+    # and it is a PARAMETER rather than a module cache: a later independent
+    # command must see source or environment changes.
+    env = environment() if build_snapshot is None else dict(build_snapshot)
     build = code_id(env)
     # The directory carries BOTH: the same problem under different code is a
     # different result, and naming it only by the problem meant the first was

@@ -172,6 +172,12 @@ dropped — a misspelt key silently ignored would leave a run looking like it
 honoured a setting it never saw. The merged result is what lands in
 `input.lock.toml`, so it is also what names the run.
 
+A sweep takes ONE build snapshot at the start and gives it to every point, so
+all points of one sweep belong to the build observed when the command began —
+a mid-sweep source change does not split the batch across two builds.
+`write_run()` still computes its own by default, because a later independent
+command must see source changes.
+
 `run sweep` is the candidate surface: `--vary NAME=V1,V2,...`, repeatable for a
 grid. Every point is solved under **one solver contract** — the tolerance and
 iteration budget are identical for every row, which is what makes a column

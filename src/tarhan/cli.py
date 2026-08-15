@@ -572,6 +572,20 @@ def _candidate_screen(out: cliout.Output, args) -> int:
             # Reported in re-review.
             out.error(f"--at {item}: {raw!r} is not a finite condition")
             return cliout.EXIT_INPUT
+        if name in conditions:
+            # The last occurrence used to win silently, so REVERSING two
+            # otherwise identical arguments changed the verdict: 0.3 then 0.9
+            # gave `undecided`, 0.9 then 0.3 gave `pass`, both exit 0. A
+            # caller could not tell from stdout or the status that a value had
+            # been discarded. Issue #2.
+            #
+            # `--vary` already refuses a repeated axis for the same reason.
+            # This is the fifth time this cycle that a guard existed on one of
+            # two sibling paths and not the other.
+            out.error(f"--at {name}: given twice ({conditions[name]:g} and "
+                      f"{value:g}); the second would silently replace the "
+                      "first and the verdict would depend on argument order")
+            return cliout.EXIT_INPUT
         conditions[name] = value
 
     # A note was not enough: `--quiet --format json` dropped it and a ranged
@@ -1166,6 +1180,15 @@ def _run_sweep(out: cliout.Output, args) -> int:
     solver = {"method": runner.method, "tol": numbers["tol"],
               "max_iter": numbers["max_iter"]}
 
+    # One snapshot for the whole command. The policy this makes explicit,
+    # which issue #4 asked for: every point in ONE sweep belongs to the build
+    # observed when the sweep started. A source change mid-sweep does not
+    # silently split the batch across two builds — which is what happened
+    # before, since each point re-ran `git status` independently.
+    from tarhan.artifact import environment
+
+    build_snapshot = environment()
+
     rows, failures = [], 0
     forge = _make_forge(out, ["SWEEP"], style="indicator",
                         graphics=args.graphics, pin="auto")
@@ -1215,6 +1238,7 @@ def _run_sweep(out: cliout.Output, args) -> int:
                 status=point_statuses["run_status"],
                 command=_recorded_command(),
                 version=__version__, fields_data=fields,
+                build_snapshot=build_snapshot,
                 report=f"# {cap.id}\n\nsweep point {point}\n")
             row["run_id"] = path.name
             row.update(metrics)

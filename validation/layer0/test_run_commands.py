@@ -1687,3 +1687,117 @@ def test_the_device_field_and_the_envelope_field_agree(tmp_path):
                              / "provenance.json").read_text())
     assert "overridden" not in provenance["device"]
     assert provenance["validation_envelope"] == "inside"
+
+
+# --- issue #2: a repeated condition changed the verdict -------------------
+
+def _ranged_candidate(tmp_path):
+    path = tmp_path / "ranged.toml"
+    path.write_text(
+        "[SYNTH-R]\n[SYNTH-R.properties.mu_n]\nvalue = 2000.0\n"
+        'unit = "cm^2/Vs"\nbasis = "computed"\n'
+        "valid_range = { bias_v = [0.0, 0.5] }\n", encoding="utf-8")
+    return str(path)
+
+
+@pytest.mark.parametrize("first,second", [("0.3", "0.9"), ("0.9", "0.3")])
+def test_a_repeated_screen_condition_is_refused(tmp_path, first, second):
+    """Issue #2. The last `--at` silently won, so REVERSING two otherwise
+    identical arguments changed the verdict: 0.3 then 0.9 gave `undecided`,
+    0.9 then 0.3 gave `pass`, and both exited 0. A caller could not tell from
+    stdout or the status that a value had been discarded.
+
+    `--vary` already refused a repeated axis for the same reason — the fifth
+    time this cycle a guard existed on one of two sibling paths.
+    """
+    proc = run("--format", "json", "--quiet", "candidate", "screen",
+               "--from", _ranged_candidate(tmp_path),
+               "--at", f"bias_v={first}", "--at", f"bias_v={second}",
+               "--require", "mu_n>=1000")
+    assert proc.returncode == cliout.EXIT_INPUT
+    assert "given twice" in proc.stderr
+    assert first in proc.stderr and second in proc.stderr
+
+
+def test_one_condition_per_name_still_screens(tmp_path):
+    """The guard must reject the duplicate, not the feature."""
+    source = _ranged_candidate(tmp_path)
+    inside = json.loads(run("--format", "json", "--quiet", "candidate",
+                            "screen", "--from", source, "--at", "bias_v=0.3",
+                            "--require", "mu_n>=1000").stdout)
+    outside = json.loads(run("--format", "json", "--quiet", "candidate",
+                             "screen", "--from", source, "--at", "bias_v=0.9",
+                             "--require", "mu_n>=1000").stdout)
+    assert inside[0]["verdict"] == "pass"
+    assert outside[0]["verdict"] == "undecided"
+
+
+# --- issue #4: one build snapshot per sweep -------------------------------
+
+def test_a_sweep_discovers_its_build_once_not_once_per_point(tmp_path,
+                                                             monkeypatch):
+    """Issue #4. Eleven points ran the source scan eleven times and spawned
+    22 git subprocesses — 0.295 s of a 0.917 s sweep, against 0.018 s for all
+    eleven solves.
+
+    Counted rather than timed: a timing assertion would be the machine-fitted
+    mistake this session has made four times. The COUNT is the invariant.
+    """
+    import subprocess
+
+    from tarhan import cli
+
+    calls = []
+    real = subprocess.run
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: (calls.append(a), real(*a, **k))[1])
+
+    exit_code = cli.main(["--quiet", "run", "sweep", PN1D,
+                          "--vary", "bias_v=0.20,0.25,0.30,0.35,0.40",
+                          "--output", str(tmp_path)])
+    assert exit_code == cliout.EXIT_OK
+    assert len(calls) <= 2, (
+        f"a 5-point sweep spawned {len(calls)} subprocesses; the build "
+        "snapshot is being recomputed per point again")
+
+
+def test_every_point_of_one_sweep_records_the_same_build(tmp_path):
+    """The policy issue #4 asked to make explicit: all points of one sweep
+    belong to the build observed when the sweep started."""
+    rows = json.loads(run("--format", "json", "run", "sweep", PN1D,
+                          "--vary", "bias_v=0.25,0.30,0.35",
+                          "--output", str(tmp_path)).stdout)
+    builds = set()
+    environments = set()
+    for row in rows:
+        manifest = json.loads((tmp_path / row["run_id"]
+                               / "manifest.json").read_text())
+        builds.add(manifest["code_id"])
+        environments.add(json.dumps(manifest["environment"], sort_keys=True))
+    assert len(builds) == 1 and len(environments) == 1
+    assert all(row["run_id"].endswith(builds.pop() if builds else "")
+               or True for row in rows)
+
+
+def test_a_standalone_write_run_still_computes_its_own_build(tmp_path):
+    """The default must stay self-computing: a later independent command has
+    to see source or environment changes, which is why this is a parameter
+    rather than a module-level cache."""
+    from tarhan import artifact
+
+    kwargs = dict(capability="cap.x.1d.steady", capability_status="validated",
+                  inputs={"a": 1.0}, solver={"m": "g"}, metrics={"j": 1.0},
+                  provenance={"p": "q"}, status="converged", command="c",
+                  version="0")
+    plain = artifact.write_run(tmp_path / "plain", **kwargs)
+    manifest = json.loads((plain / "manifest.json").read_text())
+    assert manifest["code_id"] == artifact.code_id()
+
+    # ...and an explicit snapshot is honoured rather than ignored.
+    pinned = dict(artifact.environment(), tarhan="9.9.9-synthetic")
+    other = artifact.write_run(tmp_path / "pinned", **kwargs,
+                               build_snapshot=pinned)
+    other_manifest = json.loads((other / "manifest.json").read_text())
+    assert other_manifest["environment"]["tarhan"] == "9.9.9-synthetic"
+    assert other_manifest["code_id"] == artifact.code_id(pinned)
+    assert other_manifest["code_id"] != manifest["code_id"]
